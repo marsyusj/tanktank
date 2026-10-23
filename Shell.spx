@@ -1,0 +1,29 @@
+onStart => {
+	setSize 2
+	hide
+	forever => {
+		if shotActive == 1 {
+			step 18
+			if touching(EnemyTank) {
+				shotActive = 0
+				hide
+				broadcast "enemyHit"
+			}
+			if touching(Edge) {
+				shotActive = 0
+				hide
+			}
+		}
+		wait 0.03
+	}
+}
+
+onMsg "fire", => {
+	setXpos shotX
+	setYpos shotY
+	if shotDir == 0 { setHeading Up }
+	if shotDir == 1 { setHeading Right }
+	if shotDir == 2 { setHeading Down }
+	if shotDir == 3 { setHeading Left }
+	show
+}

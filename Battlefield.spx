@@ -1,0 +1,6 @@
+onStart => {
+	setXpos 0
+	setYpos 0
+	setSize 1
+	setLayer Back
+}

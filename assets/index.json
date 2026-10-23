@@ -1,0 +1,11 @@
+{
+  "map": {"width": 480, "height": 360},
+  "zorder": [
+    "Battlefield",
+    "PlayerTank",
+    "EnemyTank",
+    "Shell",
+    {"type": "monitor", "name": "score", "size": 1, "target": "", "val": "getVar:score", "color": 15629590, "label": "击毁", "mode": 1, "style": "scratch", "x": -230, "y": 170, "visible": true},
+    {"type": "monitor", "name": "lives", "size": 1, "target": "", "val": "getVar:lives", "color": 15629590, "label": "生命", "mode": 1, "style": "scratch", "x": -110, "y": 170, "visible": true}
+  ]
+}

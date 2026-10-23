@@ -1,0 +1,16 @@
+var (
+	score float64
+	lives float64
+	gameState float64
+	shotX float64
+	shotY float64
+	shotDir float64
+	shotActive float64
+)
+
+onStart => {
+	score = 0
+	lives = 3
+	gameState = 1
+	shotActive = 0
+}

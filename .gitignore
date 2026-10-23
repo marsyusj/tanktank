@@ -1,0 +1,5 @@
+.DS_Store
+.temp/
+project/
+log.txt
+xgo_autogen*.go

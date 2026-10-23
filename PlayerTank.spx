@@ -1,0 +1,72 @@
+var facing float64 = 0
+
+onStart => {
+	setSize 1
+	setXpos -110
+	setYpos -125
+	setHeading Up
+	show
+}
+
+onKey KeyUp, => {
+	if gameState == 1 {
+		facing = 0
+		setHeading Up
+		if ypos < 150 { step 8 }
+	}
+}
+
+onKey KeyRight, => {
+	if gameState == 1 {
+		facing = 1
+		setHeading Right
+		if xpos < 210 { step 8 }
+	}
+}
+
+onKey KeyDown, => {
+	if gameState == 1 {
+		facing = 2
+		setHeading Down
+		if ypos > -150 { step 8 }
+	}
+}
+
+onKey KeyLeft, => {
+	if gameState == 1 {
+		facing = 3
+		setHeading Left
+		if xpos > -210 { step 8 }
+	}
+}
+
+onKey KeySpace, => {
+	if gameState == 1 {
+		if shotActive == 0 {
+			shotX = xpos
+			shotY = ypos
+			shotDir = facing
+			shotActive = 1
+			broadcast "fire"
+		}
+	}
+}
+
+onMsg "damage", => {
+	if lives <= 0 {
+		gameState = 0
+		say "游戏结束"
+	} else {
+		setXpos -110
+		setYpos -125
+		say "注意敌人", 1
+	}
+}
+
+onMsg "win", => {
+	say "胜利！"
+}
+
+onMsg "lose", => {
+	say "基地失守！"
+}

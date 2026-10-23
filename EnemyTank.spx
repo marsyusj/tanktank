@@ -1,0 +1,43 @@
+onStart => {
+	setSize 1
+	setXpos -190
+	setYpos 145
+	setHeading Down
+	forever => {
+		if gameState == 1 {
+			if ypos > -130 {
+				setHeading Down
+				step 0.6
+			} else {
+				setHeading Right
+				step 0.6
+			}
+			if ypos < -100 {
+				if touching(PlayerTank) {
+					lives = lives - 1
+					broadcast "damage"
+					setXpos -190
+					setYpos 145
+				}
+			}
+			if xpos > -20 {
+				gameState = 0
+				broadcast "lose"
+			}
+		}
+		wait 0.1
+	}
+}
+
+onMsg "enemyHit", => {
+	score = score + 1
+	if score >= 5 {
+		gameState = 2
+		hide
+		broadcast "win"
+	} else {
+		setXpos -190
+		setYpos 145
+		show
+	}
+}
