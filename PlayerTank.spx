@@ -1,72 +1,145 @@
-var facing float64 = 0
+var (
+	facing float64 = 0
+	slideTicks int
+	slideDir float64
+	slideStep int
+ teleportReadyAt int
+)
+
+func moveIfFree() {
+	slideDir = facing
+ slideTicks = 12
+ oldX, oldY := xpos, ypos
+	step 8 * iceMultiplier(xpos, ypos)
+	if tankBlocked(xpos, ypos) || enemyAt(xpos, ypos, 20, -1) >= 0 {
+		setXYpos oldX, oldY
+  slideTicks = 0
+	}
+}
 
 onStart => {
-	setSize 1
-	setXpos -110
-	setYpos -125
+	setSize 0.4166666666666667
+	setXpos -144
+	setYpos -132
 	setHeading Up
 	show
 }
 
 onKey KeyUp, => {
-	if gameState == 1 {
+	if gameMode == 0 && gameState == 1 {
 		facing = 0
 		setHeading Up
-		if ypos < 150 { step 8 }
+		moveIfFree
 	}
 }
 
 onKey KeyRight, => {
-	if gameState == 1 {
+	if gameMode == 0 && gameState == 1 {
 		facing = 1
 		setHeading Right
-		if xpos < 210 { step 8 }
+		moveIfFree
 	}
 }
 
 onKey KeyDown, => {
-	if gameState == 1 {
+	if gameMode == 0 && gameState == 1 {
 		facing = 2
 		setHeading Down
-		if ypos > -150 { step 8 }
+		moveIfFree
 	}
 }
 
 onKey KeyLeft, => {
-	if gameState == 1 {
+	if gameMode == 0 && gameState == 1 {
 		facing = 3
 		setHeading Left
-		if xpos > -210 { step 8 }
+		moveIfFree
 	}
 }
 
 onKey KeySpace, => {
-	if gameState == 1 {
+	if gameMode == 0 && gameState == 1 {
 		if shotActive == 0 {
 			shotX = xpos
 			shotY = ypos
 			shotDir = facing
 			shotActive = 1
+   shotDamage = 1 + bulletLevel
+   shotStep = 18 + float64(bulletLevel) * 4
 			broadcast "fire"
 		}
 	}
 }
 
 onMsg "damage", => {
+ bulletLevel = 0
 	if lives <= 0 {
 		gameState = 0
-		say "游戏结束"
+		hudStatus = "游戏结束"
 	} else {
-		setXpos -110
-		setYpos -125
-		say "注意敌人", 1
+		setXpos -144
+		setYpos -132
+		hudStatus = "注意敌人"
 	}
 }
 
 onMsg "win", => {
-	say "胜利！"
+	hudStatus = "全部三关胜利！"
 }
 
 onMsg "lose", => {
-	say "基地失守！"
+	hudStatus = "基地被击中！"
+}
+
+onMsg "levelClear", => {
+	hudStatus = "本关胜利！"
+}
+
+onMsg "levelSetup", => {
+	setXpos -144
+	setYpos -132
+	facing = 0
+	setHeading Up
+	slideTicks = 0
+ if level == 2 { hudStatus = "第二关：水域障碍" }
+ if level == 3 { hudStatus = "第三关：混合复杂地形" }
+}
+
+onStart => {
+ forever => {
+  if gameMode == 0 { show } else { hide }
+  if invincibleUntil > powerTick { setCostume 1 } else { setCostume 0 }
+  if gameMode == 0 && gameState == 1 && slideTicks > 0 && iceMultiplier(xpos, ypos) > 1 {
+   oldX, oldY := xpos, ypos
+   slideStep = 2
+   if slideTicks > 6 { slideStep = 3 }
+   if slideDir == 0 { setYpos ypos + float64(slideStep) }
+   if slideDir == 1 { setXpos xpos + float64(slideStep) }
+   if slideDir == 2 { setYpos ypos - float64(slideStep) }
+   if slideDir == 3 { setXpos xpos - float64(slideStep) }
+   slideTicks--
+   if tankBlocked(xpos, ypos) || enemyAt(xpos, ypos, 20, -1) >= 0 { setXYpos oldX, oldY; slideTicks = 0 }
+  } else { slideTicks = 0 }
+  wait 0.03
+ }
+}
+
+onMsg "powerupCollected", => {
+ hudStatus = pickupName
+}
+
+onStart => {
+ forever => {
+  dynamicPlayerX, dynamicPlayerY = xpos, ypos
+  if gameMode == 0 && gameState == 1 && powerTick >= teleportReadyAt {
+   target := portalTarget(xpos, ypos, true)
+   if target >= 0 {
+    setXYpos dynamicX[target], dynamicY[target]
+    dynamicPlayerX, dynamicPlayerY = xpos, ypos
+    teleportReadyAt = powerTick + 15
+    slideTicks = 0
+   }
+  }
+  wait 0.03
+ }
 }

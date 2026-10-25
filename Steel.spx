@@ -1,0 +1,17 @@
+var steelID int
+onStart => {
+ hide
+ for i := 0; i < len(steelX); i++ {
+  steelID = i
+  setXYpos steelX[i], steelY[i]
+  clone
+ }
+}
+onCloned => {
+ setSize 0.5
+ forever => {
+  setXYpos steelX[steelID], steelY[steelID]
+  if xpos > 500 { hide } else { show }
+  wait 0.03
+ }
+}

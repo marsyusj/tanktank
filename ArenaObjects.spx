@@ -1,0 +1,17 @@
+var objectID int
+onStart => {
+ hide
+ for i := 0; i < 3; i++ { objectID = i; clone }
+}
+onCloned => {
+ setSize 0.75
+ setCostume objectID
+ forever => {
+  if gameMode == 2 {
+   if objectID == 0 { setXYpos energyX,energyY; if energyPresent { show } else if reversalActive && gameMode <= 1 && objectID == 2 && assaultBaseHP > 0 { setXYpos 0,132; show } else { hide } }
+   if objectID == 1 { setXYpos -192,-132; show }
+   if objectID == 2 { setXYpos 192,132; show }
+  } else if reversalActive && gameMode <= 1 && objectID == 2 && assaultBaseHP > 0 { setXYpos 0,132; show } else { hide }
+  wait 0.03
+ }
+}

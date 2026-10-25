@@ -1,0 +1,17 @@
+var waterID int
+onStart => {
+ hide
+ for i := 0; i < len(waterX); i++ {
+  waterID = i
+  setXYpos waterX[i], waterY[i]
+  clone
+ }
+}
+onCloned => {
+ setSize 1
+ forever => {
+  setXYpos waterX[waterID], waterY[waterID]
+  if xpos > 500 { hide } else { show }
+  wait 0.03
+ }
+}

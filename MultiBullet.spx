@@ -1,0 +1,19 @@
+var actorID int
+onStart => {
+ hide
+ for i := 0; i < 16; i++ { actorID = i; clone }
+}
+onCloned => {
+ setSize 1
+ forever => {
+  if gameMode > 0 && gameState == 1 && multiAmmo[actorID] {
+   setXYpos multiAmmoX[actorID],multiAmmoY[actorID]
+   if multiAmmoDir[actorID] == 0 { setHeading Up }
+   if multiAmmoDir[actorID] == 1 { setHeading Right }
+   if multiAmmoDir[actorID] == 2 { setHeading Down }
+   if multiAmmoDir[actorID] == 3 { setHeading Left }
+   show
+  } else { hide }
+  wait 0.02
+ }
+}

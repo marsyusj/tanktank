@@ -1,5 +1,6 @@
 .DS_Store
 .temp/
+.godot-user/
 project/
 log.txt
 xgo_autogen*.go

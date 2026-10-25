@@ -1,0 +1,20 @@
+var actorID int
+onStart => {
+ hide
+ for i := 0; i < 16; i++ { actorID = i; clone }
+}
+onCloned => {
+ setSize 0.4166666666666667
+ forever => {
+  if gameMode > 0 && multiUsed[actorID] && multiHP[actorID] > 0 {
+   setCostume multiTeam(actorID)
+   setXYpos multiX[actorID],multiY[actorID]
+   if multiDir[actorID] == 0 { setHeading Up }
+   if multiDir[actorID] == 1 { setHeading Right }
+   if multiDir[actorID] == 2 { setHeading Down }
+   if multiDir[actorID] == 3 { setHeading Left }
+   show
+  } else { hide }
+  wait 0.02
+ }
+}

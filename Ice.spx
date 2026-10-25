@@ -1,0 +1,17 @@
+var iceID int
+onStart => {
+ hide
+ for i := 0; i < len(iceX); i++ {
+  iceID = i
+  setXYpos iceX[i], iceY[i]
+  clone
+ }
+}
+onCloned => {
+ setSize 1
+ forever => {
+  setXYpos iceX[iceID], iceY[iceID]
+  if xpos > 500 { hide } else { show }
+  wait 0.03
+ }
+}

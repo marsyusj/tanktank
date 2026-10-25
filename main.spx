@@ -1,16 +1,1405 @@
+import "strconv"
+
 var (
+ forestPlayers int = 1
+ forestRoundPlayers int
+ forestSpawned int
+ forestNextSpawn int
+ forestStartTick int
+ reversalActive bool
+ assaultBaseHP int
+ reversalKills [5]int
+ reversalKillCount int
+ gameMode int
+ fleetLimit int = 5
+ roundFleetLimit int = 5
+ multiTeleportAt [16]int
+ multiSlide [16]int
+ multiTick int
+ matchEndTick int
+ energyReadyAt int
+ energyX float64
+ energyY float64
+ energyPresent bool
+ sharedBaseHP int = 5
+ teamBaseHP [2]int
+ teamKills [2]int
+ teamEnergy [2]int
+ multiHUD string = "N单人 J合作 K能源 L围剿"
+ multiX [16]float64
+ multiY [16]float64
+ multiDir [16]int
+ multiHP [16]int
+ multiUsed [16]bool
+ multiDownUntil [16]int
+ multiRescue [16]int
+ multiInvUntil [16]int
+ multiRespawnAt [16]int
+ multiStrength [16]int
+ multiCooldown [16]int
+ multiAmmo [16]bool
+ multiAmmoX [16]float64
+ multiAmmoY [16]float64
+ multiAmmoDir [16]int
+ multiAmmoDamage [16]int
+ multiSerial int
+ pickupPlayer int
+
+ enemyAlive [4]bool
+ enemyPosX [4]float64
+ enemyPosY [4]float64
+ enemyHealth [4]int
+ enemyBulletActive [4]bool
+ enemyBulletX [4]float64
+ enemyBulletY [4]float64
+ enemyBulletDir [4]int
+ enemyHitTarget int = -1
+ enemyLimit int = 2
+
+ editorDragKind int
+ editorDragX float64
+ editorDragY float64
+ editorMode bool
+ customMap bool
+ editorTool int = 1
+ editorTiles [78]int
+ editorBroken [78]bool
+
+ dynamicPlayerX float64 = -144
+ dynamicPlayerY float64 = -132
+ dynamicEnemyX float64 = 0
+ dynamicEnemyY float64 = 145
+ dynamicEnemyAlive bool
+ dynamicKind [48]int
+ dynamicX [48]float64
+ dynamicY [48]float64
+ dynamicApplied [48]bool
+ dynamicActivateAt [48]int
+ dynamicDeadline [48]int
+ dynamicExpiresAt [48]int
+ dynamicDuration [48]int
+ dynamicBrickID [48]int
+ lootX [32]float64
+ lootY [32]float64
+ lootUntil [32]int
+ nextBrickAt int
+ nextWaterAt int
+ nextFireAt int
+ nextIceAt int
+ nextPortalAt int
+ lastDynamicTick int = -1
+ portalSlotA int = -1
+ portalSlotB int = -1
+ dynamicWaterCount int
+ dynamicIceCount int
+ hudStatus string = "保护基地，消灭敌军"
+ mapNotice string
+
+ powerTick int
+ bulletLevel int
+ shotDamage int
+ shotStep float64
+ hitDamage int
+ baseFortifiedUntil int
+ invincibleUntil int
+ enemyFrozenUntil int
+ enemySlowedUntil int
+ chestX float64
+ chestY float64
+ dropChance int = 40
+ pickupName string
+
+	forestX = [48]float64{-192, -168, -144, -120, -72, -48, -24, 0, 24, 48, -192, -168, -144, -120, 120, 144, 168, 192}
+	forestY = [48]float64{132, 132, 132, 132, -60, -60, -60, -60, -60, -60, -84, -84, -84, -84, -84, -84, -84, -84}
+	mapPoolX [112]float64
+	mapPoolY [112]float64
+
+	waterX [24]float64
+	waterY [24]float64
+	iceX [30]float64
+	iceY [30]float64
+
 	score float64
 	lives float64
+	level float64
+	levelTarget float64
+	enemySpeed float64
 	gameState float64
+	explosionX float64
+	explosionY float64
 	shotX float64
 	shotY float64
 	shotDir float64
 	shotActive float64
+	enemyShotX float64
+	enemyShotY float64
+	enemyShotDir float64
+	enemyShotActive float64
+	brickDestroyed [30]bool
+	brickX = [30]float64{}
+	brickY = [30]float64{}
+	steelX = [20]float64{-192, -168, -144, 108, 132, 156, 180}
+	steelY = [20]float64{24, 24, 24, 24, 24, 24, 24}
 )
+
+// Training uses mirrored brick wall segments and open lanes.
+func multiTeam(id int) int { return id / 8 }
+
+func multiAt(x,y,radius float64,skip int) int {
+ for i := 0; i < 16; i++ {
+  if i != skip && multiUsed[i] && multiHP[i] > 0 && dynamicTileOverlaps(x,y,multiX[i],multiY[i],radius) { return i }
+ }
+ return -1
+}
+
+func remainingFleet(team int) int {
+ count := 0
+ for i := team*8; i < team*8+8; i++ { if multiUsed[i] && multiHP[i] > 0 { count++ } }
+ return count
+}
+
+func finishMulti(winner int) {
+ gameState = 2
+ multiAmmo = [16]bool{}
+ enemyBulletActive = [4]bool{}
+ if winner < 0 { hudStatus = "平局" } else if gameMode == 1 { hudStatus = "合作失败" } else if winner == 0 { hudStatus = "玩家1获胜" } else { hudStatus = "玩家2获胜" }
+ mapNotice = "N单人 J合作 K能源 L围剿"
+}
+
+func damageSharedBase() {
+ if gameState != 1 || gameMode != 1 { return }
+ sharedBaseHP--
+ if sharedBaseHP <= 0 { sharedBaseHP = 0; finishMulti -1; hudStatus = "共享基地被摧毁，合作失败" }
+}
+
+func damageMulti(id,attacker,damage int) {
+ if gameState != 1 || id < 0 || id >= 16 || multiHP[id] <= 0 || multiInvUntil[id] > multiTick { return }
+ multiHP[id] -= damage
+ if multiHP[id] > 0 { return }
+ multiHP[id] = 0
+ multiAmmo[id] = false
+ if gameMode == 1 {
+  multiDownUntil[id] = multiTick + 200
+  multiRescue[id] = 0
+  hudStatus = "队友倒下！靠近停留3秒救援，限时10秒"
+ } else {
+  if attacker >= 0 {
+   team := multiTeam(attacker)
+   teamKills[team]++
+   if multiStrength[attacker] < 3 { multiStrength[attacker]++ }
+  }
+  if gameMode == 2 { multiRespawnAt[id] = multiTick + 40 }
+  if gameMode==4 {
+   if attacker>=0 { finishMulti multiTeam(attacker) } else {
+    if forestRoundPlayers==2 { finishMulti 1-multiTeam(id); hudStatus="玩家"+strconv.Itoa(2-multiTeam(id))+"生存获胜" } else { finishMulti -1; hudStatus="围剿失败，按L重试" }
+   }
+  }
+  if gameMode == 3 && remainingFleet(multiTeam(id)) == 0 { finishMulti 1-multiTeam(id) }
+ }
+}
+
+func multiSpawn(id int,randomSpawn bool) bool {
+ if randomSpawn {
+  found := false
+  for tries := 0; tries < 500 && !found; tries++ {
+   x,y := float64(rand(-210,210)),float64(rand(-150,150))
+   if !tankBlocked(x,y) && multiAt(x,y,36,id) < 0 && enemyAt(x,y,36,-1) < 0 {
+    multiX[id],multiY[id] = x,y
+    found = true
+   }
+  }
+  if !found {
+   for cell := 0; cell < 78 && !found; cell++ {
+    x,y := editorX(cell),editorY(cell)
+    if !tankBlocked(x,y) && multiAt(x,y,36,id) < 0 {
+     multiX[id],multiY[id] = x,y
+     found = true
+    }
+   }
+  }
+  if !found { return false }
+ } else {
+  multiX[id],multiY[id] = -144,-132
+  if id == 8 { multiX[id] = 144 }
+ }
+ multiHP[id] = 3
+ multiDownUntil[id] = 0
+ multiRescue[id] = 0
+ multiRespawnAt[id] = 0
+ multiInvUntil[id] = multiTick + 40
+ multiDir[id] = 0
+ if multiTeam(id) == 1 { multiDir[id] = 2 }
+ return true
+}
+
+func resetCoopPlayers() {
+ multiAmmo = [16]bool{}
+ multiUsed = [16]bool{}
+ multiUsed[0],multiUsed[8] = true,true
+ multiSpawn 0,false
+ multiSpawn 8,false
+}
+
+func beginMulti(mode int) {
+ gameState = 4
+ gameMode = mode
+ editorMode = false
+ customMap = false
+ multiSerial++
+ reversalActive=false
+ reversalKillCount=0
+ assaultBaseHP=0
+ score,lives,level,levelTarget,enemySpeed = 0,3,1,8,4
+ shotActive,enemyShotActive = 0,0
+ multiAmmo = [16]bool{}
+ multiUsed = [16]bool{}
+ multiHP = [16]int{}
+ multiStrength = [16]int{}
+ multiDownUntil = [16]int{}
+ multiRespawnAt = [16]int{}
+ multiCooldown = [16]int{}
+ enemyAlive = [4]bool{}
+ enemyBulletActive = [4]bool{}
+ teamBaseHP = [2]int{5,5}
+ teamKills = [2]int{}
+ teamEnergy = [2]int{}
+ sharedBaseHP = 5
+ multiTick = 0
+ roundFleetLimit = fleetLimit
+ multiTeleportAt = [16]int{}
+ multiSlide = [16]int{}
+ matchEndTick = 3600
+ energyReadyAt = 40
+ energyPresent = false
+ brickDestroyed = [30]bool{}
+ randomizeMap
+ resetDynamicMap
+ broadcast "levelSetup"
+ if mode >= 2 {
+  for i := 14; i < len(brickDestroyed); i++ { brickDestroyed[i] = true }
+  count := 1
+  if mode == 3 { count = roundFleetLimit }
+  for team := 0; team < 2; team++ {
+   for slot := 0; slot < count; slot++ {
+    id := team*8+slot
+    multiUsed[id] = true
+    if !multiSpawn(id,true) { multiUsed[id] = false; hudStatus = "出生位置不足，请减少数量" }
+   }
+  }
+ }
+ if mode==4 {
+  forestRoundPlayers=forestPlayers
+  forestSpawned=0
+  forestStartTick=powerTick
+  forestNextSpawn=powerTick+20
+  levelTarget=50
+  for i:=0;i<len(brickX);i++ { brickDestroyed[i]=true }
+  for i:=0;i<len(steelX);i++ { steelX[i]=1000 }
+  for i:=0;i<len(waterX);i++ { waterX[i]=1000 }
+  for i:=0;i<len(iceX);i++ { iceX[i]=1000 }
+  for i:=0;i<len(forestX);i++ {
+   forestX[i]=float64(-192+(i%8)*48)
+   forestY[i]=float64(-120+(i/8)*48)
+  }
+  multiUsed=[16]bool{}
+  multiHP=[16]int{}
+  multiUsed[0]=true
+  multiSpawn 0,false
+  if forestRoundPlayers==2 { multiUsed[8]=true; multiSpawn 8,false }
+ }
+ if mode == 0 {
+  showVar "score"; showVar "lives"; showVar "level"; showVar "levelTarget"; showVar "bulletLevel"
+  hideVar "multiHUD"
+ } else {
+  hideVar "score"; hideVar "lives"; hideVar "level"; hideVar "levelTarget"; hideVar "bulletLevel"
+  showVar "multiHUD"
+ }
+ gameState = 1
+ broadcast "levelStart"
+ if mode == 0 { hudStatus = "击毁8辆过关；10秒内5辆可触发反转" }
+ if mode == 1 { hudStatus = "合作：击毁8辆过关；10秒内5辆可反转" }
+ if mode == 2 { hudStatus = "能源竞技：3分钟；保护己方基地，击杀/抢能源得分" }
+ if mode == 4 { hudStatus="森林大围剿：消灭50辆敌军获胜；双人也可击毁对方获胜" }
+ if mode == 3 { hudStatus = "对轰：每方坦克同步受控，全灭对方获胜" }
+ mapNotice = "N单人 J合作 K能源 L围剿；Z单人/X双人后按L"
+}
+
+func multiMove(id,dir int) {
+ if multiHP[id] <= 0 { return }
+ multiDir[id] = dir
+ distance := 3 * iceMultiplier(multiX[id],multiY[id])
+ distance += float64(multiStrength[id])*0.25
+ dx,dy := 0.0,0.0
+ if dir == 0 { dy = distance }
+ if dir == 1 { dx = distance }
+ if dir == 2 { dy = -distance }
+ if dir == 3 { dx = -distance }
+ x,y := multiX[id]+dx,multiY[id]+dy
+ if tankBlocked(x,y) || enemyAt(x,y,20,-1) >= 0 { return }
+ other := multiAt(x,y,20,id)
+ if other >= 0 {
+  if gameMode != 1 { return }
+  ox,oy := multiX[other]+dx,multiY[other]+dy
+  if tankBlocked(ox,oy) || multiAt(ox,oy,20,other) >= 0 || enemyAt(ox,oy,20,-1) >= 0 { return }
+  multiX[other],multiY[other] = ox,oy
+ }
+ multiX[id],multiY[id] = x,y
+}
+
+func fireMulti(id int) {
+ if multiHP[id] <= 0 || multiAmmo[id] || multiTick < multiCooldown[id] { return }
+ multiAmmo[id] = true
+ multiAmmoX[id],multiAmmoY[id] = multiX[id],multiY[id]
+ multiAmmoDir[id] = multiDir[id]
+ multiAmmoDamage[id] = 1+multiStrength[id]
+ multiCooldown[id] = multiTick + 7
+ if multiDir[id] == 0 { multiAmmoY[id] += 24 }
+ if multiDir[id] == 1 { multiAmmoX[id] += 24 }
+ if multiDir[id] == 2 { multiAmmoY[id] -= 24 }
+ if multiDir[id] == 3 { multiAmmoX[id] -= 24 }
+}
+
+func stepMultiBullet(id int) {
+ if !multiAmmo[id] { return }
+ for stepID := 0; stepID < 4 && multiAmmo[id] && gameState == 1; stepID++ {
+  if multiAmmoDir[id] == 0 { multiAmmoY[id] += 2 }
+  if multiAmmoDir[id] == 1 { multiAmmoX[id] += 2 }
+  if multiAmmoDir[id] == 2 { multiAmmoY[id] -= 2 }
+  if multiAmmoDir[id] == 3 { multiAmmoX[id] -= 2 }
+  x,y := multiAmmoX[id],multiAmmoY[id]
+  if x < -235 || x > 235 || y < -175 || y > 175 { multiAmmo[id] = false; return }
+  hit := obstacleAt(x,y,4,4)
+  if hit != 0 { if hit > 0 { destroyMapBrick hit }; multiAmmo[id] = false; return }
+  if gameMode == 1 && hitAssaultBase(x,y) { damageAssaultBase 1+multiStrength[id]; multiAmmo[id]=false; return }
+  if gameMode == 1 && hitBase(x,y) { damageSharedBase; multiAmmo[id] = false; return }
+  if gameMode == 2 {
+   target := 1-multiTeam(id)
+   bx,by := -192.0,-132.0
+   if target == 1 { bx,by = 192,132 }
+   if dynamicTileOverlaps(x,y,bx,by,20) {
+    teamBaseHP[target]--
+    multiAmmo[id] = false
+    if teamBaseHP[target] <= 0 { finishMulti multiTeam(id) }
+    return
+   }
+  }
+  target := multiAt(x,y,14,id)
+  if target >= 0 {
+   multiAmmo[id] = false
+   if gameMode >= 2 && multiTeam(target) != multiTeam(id) { damageMulti target,id,multiAmmoDamage[id] }
+   return
+  }
+  if gameMode == 1 || gameMode==4 {
+   enemy := enemyAt(x,y,14,-1)
+   if enemy >= 0 { enemyHealth[enemy] -= multiAmmoDamage[id]; multiAmmo[id] = false; return }
+  }
+ }
+}
+
+func applyMultiPowerup(id,kind int) {
+ if kind == 0 { if multiStrength[id] < 3 { multiStrength[id]++ } }
+ if kind == 1 { broadcast "grenade" }
+ if kind == 2 && !reversalActive { baseFortifiedUntil = powerTick+150; for i:=14;i<len(brickDestroyed);i++ { brickDestroyed[i]=false } }
+ if kind == 3 { multiInvUntil[id] = multiTick+160 }
+ if kind == 4 { enemyFrozenUntil = powerTick+60 }
+ if kind == 5 { multiHP[id] = 3; if sharedBaseHP < 5 { sharedBaseHP++ } }
+ if kind == 6 { enemySlowedUntil = powerTick+100 }
+ hudStatus = "已领取道具（作用于拾取者或共享防御）"
+}
+
+func tickRescue(id int) {
+ if multiHP[id] > 0 || multiDownUntil[id] <= 0 { return }
+ if multiTick >= multiDownUntil[id] { multiDownUntil[id] = 0; multiRescue[id] = 0; return }
+ buddy := 8-id
+ if multiHP[buddy] <= 0 || !dynamicTileOverlaps(multiX[id],multiY[id],multiX[buddy],multiY[buddy],44) { multiRescue[id] = 0; return }
+ multiRescue[id]++
+ if multiRescue[id] < 60 { return }
+ found := false
+ for dir := 0; dir < 5 && !found; dir++ {
+  x,y := multiX[id],multiY[id]
+  if dir == 1 { x += 32 }
+  if dir == 2 { x -= 32 }
+  if dir == 3 { y += 32 }
+  if dir == 4 { y -= 32 }
+  if !tankBlocked(x,y) && multiAt(x,y,20,id) < 0 && enemyAt(x,y,20,-1) < 0 {
+   multiX[id],multiY[id] = x,y
+   found = true
+  }
+ }
+ if found {
+  multiHP[id] = 3
+  multiDownUntil[id] = 0
+  multiInvUntil[id] = multiTick+40
+  multiRescue[id] = 0
+  hudStatus = "救援成功"
+ }
+}
+
+func settleArena() {
+ if gameState != 1 || multiTick < matchEndTick { return }
+ a,b := teamKills[0]*3+teamEnergy[0],teamKills[1]*3+teamEnergy[1]
+ if a == b { finishMulti -1 } else if a > b { finishMulti 0 } else { finishMulti 1 }
+}
+
+func tickArenaEnergy() {
+  if !energyPresent && multiTick >= energyReadyAt {
+   energyX,energyY = 0,4
+   if tankBlocked(energyX,energyY) { energyY = 68 }
+   if !tankBlocked(energyX,energyY) { energyPresent = true }
+   energyReadyAt = multiTick+100
+  }
+  if energyPresent {
+   id := multiAt(energyX,energyY,24,-1)
+   if id >= 0 {
+    teamEnergy[multiTeam(id)]++
+    if multiStrength[id] < 3 { multiStrength[id]++ }
+    energyPresent = false
+    energyReadyAt = multiTick+100
+   }
+  }
+}
+
+func tickMulti() {
+ if gameMode == 0 || gameState != 1 { return }
+ multiTick++
+ for id := 0; id < 16; id++ {
+  if multiUsed[id] {
+   if multiHP[id] > 0 {
+    moved := false
+    if keyPressed(KeyW) && multiTeam(id) == 0 { moved = true }
+    if keyPressed(KeyD) && multiTeam(id) == 0 { moved = true }
+    if keyPressed(KeyS) && multiTeam(id) == 0 { moved = true }
+    if keyPressed(KeyA) && multiTeam(id) == 0 { moved = true }
+    if keyPressed(KeyUp) && multiTeam(id) == 1 { moved = true }
+    if keyPressed(KeyRight) && multiTeam(id) == 1 { moved = true }
+    if keyPressed(KeyDown) && multiTeam(id) == 1 { moved = true }
+    if keyPressed(KeyLeft) && multiTeam(id) == 1 { moved = true }
+    if moved { multiSlide[id] = 10 } else if multiSlide[id] > 0 && iceMultiplier(multiX[id],multiY[id]) > 1 { multiMove id,multiDir[id]; multiSlide[id]-- } else { multiSlide[id] = 0 }
+    if gameMode == 1 && multiTick >= multiTeleportAt[id] {
+     target := portalTarget(multiX[id],multiY[id],true)
+     if target >= 0 { multiX[id],multiY[id] = dynamicX[target],dynamicY[target]; multiTeleportAt[id] = multiTick+30 }
+    }
+    if multiTeam(id) == 0 {
+     if keyPressed(KeyW) { multiMove id,0 }
+     if keyPressed(KeyD) { multiMove id,1 }
+     if keyPressed(KeyS) { multiMove id,2 }
+     if keyPressed(KeyA) { multiMove id,3 }
+     if keyPressed(KeySpace) { fireMulti id }
+    } else {
+     if keyPressed(KeyUp) { multiMove id,0 }
+     if keyPressed(KeyRight) { multiMove id,1 }
+     if keyPressed(KeyDown) { multiMove id,2 }
+     if keyPressed(KeyLeft) { multiMove id,3 }
+     if keyPressed(KeyEnter) { fireMulti id }
+    }
+   }
+   if gameMode == 1 { tickRescue id }
+   if gameMode == 2 && multiHP[id] <= 0 && multiRespawnAt[id] > 0 && multiTick >= multiRespawnAt[id] { multiSpawn id,true }
+   stepMultiBullet id
+  }
+ }
+ if gameMode == 1 {
+  if multiHP[0] <= 0 && multiHP[8] <= 0 && multiDownUntil[0] == 0 && multiDownUntil[8] == 0 { finishMulti -1; hudStatus = "无人能够继续作战，合作失败" }
+  a,b := 0,0
+  if multiDownUntil[0] > multiTick { a = (multiDownUntil[0]-multiTick+19)/20 }
+  if multiDownUntil[8] > multiTick { b = (multiDownUntil[8]-multiTick+19)/20 }
+  progress := "击毁:"+strconv.Itoa(int(score))+"/"+strconv.Itoa(int(levelTarget))
+  if reversalActive { progress = "敌基地:"+strconv.Itoa(assaultBaseHP) }
+  multiHUD = "合作"+strconv.Itoa(int(level))+"关 "+progress+" 基地:"+strconv.Itoa(sharedBaseHP)+" P1:"+strconv.Itoa(multiHP[0])+" 救援:"+strconv.Itoa(a)+" P2:"+strconv.Itoa(multiHP[8])+" 救援:"+strconv.Itoa(b)
+ } else if gameMode == 2 {
+  tickArenaEnergy
+  settleArena
+  multiHUD = "竞技 P1:"+strconv.Itoa(teamKills[0]*3+teamEnergy[0])+" 基地:"+strconv.Itoa(teamBaseHP[0])+" P2:"+strconv.Itoa(teamKills[1]*3+teamEnergy[1])+" 基地:"+strconv.Itoa(teamBaseHP[1])+" 秒:"+strconv.Itoa((matchEndTick-multiTick+19)/20)
+ } else if gameMode==4 {
+  multiHUD="围剿 "+strconv.Itoa(int(score))+"/50 出场:"+strconv.Itoa(forestSpawned)+" 存活:"+strconv.Itoa(activeEnemies())+" P1:"+strconv.Itoa(multiHP[0])
+  if forestRoundPlayers==2 { multiHUD += " P2:"+strconv.Itoa(multiHP[8]) }
+ } else {
+  multiHUD = "对轰 P1剩余:"+strconv.Itoa(remainingFleet(0))+" P2剩余:"+strconv.Itoa(remainingFleet(1))+" 每方上限:"+strconv.Itoa(roundFleetLimit)
+ }
+}
+
+func enemyCap() int {
+ if gameMode == 4 {
+  cap:=2+(powerTick-forestStartTick)/300
+  if cap>4 { cap=4 }; return cap
+ }
+ if gameMode >= 2 { return 0 }
+ if level >= 3 { return 4 }
+ if level == 2 { return 3 }
+ return 2
+}
+
+func activeEnemies() int {
+ total := 0
+ for i := 0; i < 4; i++ { if enemyAlive[i] { total++ } }
+ return total
+}
+
+func canSpawnEnemy(id int) bool {
+ if gameState != 1 || id < 0 || id >= enemyCap() { return false }
+ if gameMode==4 { return !enemyAlive[id] && forestSpawned<50 && powerTick>=forestNextSpawn }
+ return !enemyAlive[id]
+}
+
+func enemyAt(x, y, radius float64, skip int) int {
+ for i := 0; i < 4; i++ {
+  if i != skip && enemyAlive[i] && dynamicTileOverlaps(x, y, enemyPosX[i], enemyPosY[i], radius) { return i }
+ }
+ return -1
+}
+
+func editorCell(x, y float64) int {
+ if x < -208 || x >= 208 || y > 116 || y <= -76 { return -1 }
+ return int((116-y)/32)*13 + int((x+208)/32)
+}
+
+func editorX(i int) float64 { return -192 + float64(i%13)*32 }
+func editorY(i int) float64 { return 100 - float64(i/13)*32 }
+
+func editorPlace(i, kind int) bool {
+ if i < 0 || i >= 78 || kind < 0 || kind > 4 { return false }
+ editorTiles[i] = kind
+ editorBroken[i] = false
+ return true
+}
+
+func editorObstacle(x, y, halfW, halfH float64, water bool) int {
+ if !customMap { return 0 }
+ for i := 0; i < 78; i++ {
+  kind := editorTiles[i]
+  if editorBroken[i] { kind = 0 }
+  if kind == 1 || kind == 2 || (water && kind == 3) {
+   if dynamicTileOverlaps(x, y, editorX(i), editorY(i), 12+halfW) &&
+      y > editorY(i)-12-halfH && y < editorY(i)+12+halfH {
+    if kind == 1 { return len(brickX)+i+1 }
+    return -1
+   }
+  }
+ }
+ return 0
+}
+
+func destroyMapBrick(hit int) {
+ if hit > len(brickX) {
+  id := hit-len(brickX)-1
+  if id >= 0 && id < 78 { editorBroken[id] = true }
+ } else if hit > 0 { brickDestroyed[hit-1] = true }
+}
+
+func prepareCustomMap() {
+ for i := 0; i < 14; i++ { brickX[i], brickY[i] = 1000, 1000 }
+ for i := 0; i < len(steelX); i++ { steelX[i], steelY[i] = 1000, 1000 }
+ for i := 0; i < len(waterX); i++ { waterX[i], waterY[i] = 1000, 1000 }
+ for i := 0; i < len(iceX); i++ { iceX[i], iceY[i] = 1000, 1000 }
+ for i := 0; i < len(forestX); i++ { forestX[i], forestY[i] = 1000, 1000 }
+ editorBroken = [78]bool{}
+}
+
+func trainingMap() {
+ for i:=0;i<14;i++ { brickX[i],brickY[i]=1000,1000 }
+ brickX = [30]float64{-168,-144,-168,-144,144,168,144,168,-36,-12,12,36,1000,1000}
+ brickY = [30]float64{76,76,64,64,76,76,64,64,-72,-72,-72,-72,1000,1000}
+ closeBaseWalls
+ for i := 0; i < len(steelX); i++ { steelX[i], steelY[i] = 1000, 1000 }
+ steelX[0], steelY[0] = -80, 28
+ steelX[1], steelY[1] = 80, 28
+ for i := 0; i < len(waterX); i++ { waterX[i], waterY[i] = 1000, 1000 }
+ for i := 0; i < len(iceX); i++ { iceX[i], iceY[i] = 1000, 1000 }
+ for i := 0; i < len(forestX); i++ { forestX[i], forestY[i] = 1000, 1000 }
+ forestX[0], forestY[0] = -192, 4
+ forestX[1], forestY[1] = -96, 4
+ forestX[2], forestY[2] = 96, 4
+ forestX[3], forestY[3] = 192, 4
+}
+
+func setReversalLayout() {
+ for i:=0;i<14;i++ { brickX[i],brickY[i]=1000,1000; brickDestroyed[i]=false }
+ for i:=14;i<len(brickX);i++ { brickDestroyed[i]=true }
+ for i:=0;i<len(steelX);i++ { steelX[i],steelY[i]=1000,1000 }
+ for i:=0;i<len(waterX);i++ { waterX[i],waterY[i]=1000,1000 }
+ for i:=0;i<len(iceX);i++ { iceX[i],iceY[i]=1000,1000 }
+ for i:=0;i<len(forestX);i++ { forestX[i],forestY[i]=1000,1000 }
+
+ if level == 1 {
+  brickX = [30]float64{-168,-144,-168,-144,144,168,144,168,1000,1000,1000,1000,1000,1000}
+  brickY = [30]float64{32,32,20,20,32,32,20,20,1000,1000,1000,1000,1000,1000}
+  steelX[0],steelY[0]=-192,80
+  steelX[1],steelY[1]=192,80
+  forestX[0],forestY[0]=-128,-16
+  forestX[1],forestY[1]=-96,-16
+  forestX[2],forestY[2]=96,-16
+  forestX[3],forestY[3]=128,-16
+ } else if level == 2 {
+  brickX = [30]float64{-184,-160,-184,-160,160,184,160,184,1000,1000,1000,1000,1000,1000}
+  brickY = [30]float64{-20,-20,-32,-32,-20,-20,-32,-32,1000,1000,1000,1000,1000,1000}
+  for row:=0;row<5;row++ {
+   waterX[row],waterY[row]=-96,float64(-48+row*24)
+   waterX[row+5],waterY[row+5]=96,float64(-48+row*24)
+  }
+  steelX[0],steelY[0]=-160,48
+  steelX[1],steelY[1]=160,48
+  forestX[0],forestY[0]=-176,-112
+  forestX[1],forestY[1]=176,-112
+ } else {
+  brickX = [30]float64{-12,12,-12,12,-80,-56,-80,-56,1000,1000,1000,1000,1000,1000}
+  brickY = [30]float64{88,88,76,76,-88,-88,-100,-100,1000,1000,1000,1000,1000,1000}
+  for row:=0;row<6;row++ {
+   waterX[row],waterY[row]=-128,float64(-72+row*24)
+   waterX[row+6],waterY[row+6]=128,float64(-72+row*24)
+  }
+  steelX[0],steelY[0]=-48,32
+  steelX[1],steelY[1]=48,32
+  for i:=0;i<5;i++ { iceX[i],iceY[i]=float64(-64+i*32),-8 }
+  forestX[0],forestY[0]=-192,-96
+  forestX[1],forestY[1]=-160,-96
+  forestX[2],forestY[2]=160,-96
+  forestX[3],forestY[3]=192,-96
+ }
+}
+
+func startReversal() {
+ if reversalActive || gameMode > 1 { return }
+ reversalActive = true
+ assaultBaseHP = 6
+ if level == 2 { assaultBaseHP = 8 }
+ if level >= 3 { assaultBaseHP = 10 }
+ shotActive = 0
+ enemyBulletActive = [4]bool{}
+ baseFortifiedUntil = 0
+ resetDynamicMap
+ setReversalLayout
+ // Clear transformed solid tiles around active players so the flip cannot trap them.
+ for player:=0;player<2;player++ {
+  px,py:=dynamicPlayerX,dynamicPlayerY
+  if gameMode==1 { id:=player*8; px,py=multiX[id],multiY[id] }
+  for j:=0;j<len(brickX);j++ { if dynamicTileOverlaps(px,py,brickX[j],brickY[j],48) { brickDestroyed[j]=true } }
+  for j:=0;j<len(steelX);j++ { if dynamicTileOverlaps(px,py,steelX[j],steelY[j],48) { steelX[j]=1000 } }
+  for j:=0;j<len(waterX);j++ { if dynamicTileOverlaps(px,py,waterX[j],waterY[j],48) { waterX[j]=1000 } }
+ }
+ hudStatus = "第"+strconv.Itoa(int(level))+"关反转：向上进攻敌方基地"
+ mapNotice = "敌方基地耐久："+strconv.Itoa(assaultBaseHP)
+ broadcast "reversal"
+}
+
+func recentReversalKills() int {
+ count:=0
+ for i:=0;i<len(reversalKills);i++ {
+  if reversalKills[i]>0 && powerTick-reversalKills[i]<=100 { count++ }
+ }
+ return count
+}
+
+func recordReversalKill() {
+ if gameMode>1 || reversalActive { return }
+ for i:=0;i<len(reversalKills)-1;i++ { reversalKills[i]=reversalKills[i+1] }
+ reversalKills[len(reversalKills)-1]=powerTick
+ reversalKillCount=recentReversalKills()
+ if reversalKillCount>=5 { startReversal } else {
+  mapNotice="击毁："+strconv.Itoa(int(score))+"/"+strconv.Itoa(int(levelTarget))+"  10秒连击："+strconv.Itoa(reversalKillCount)+"/5"
+ }
+}
+
+func completeLevel() {
+ shotActive=0
+ enemyBulletActive=[4]bool{}
+ if level<3 { gameState=3; broadcast "nextLevel" } else { gameState=2; broadcast "win" }
+}
+
+func clearDefenseByKills() bool {
+ if gameState!=1 || gameMode>1 || reversalActive || score<levelTarget { return false }
+ mapNotice="本关击毁"+strconv.Itoa(int(score))+"辆，防守过关"
+ completeLevel
+ return true
+}
+
+func hitAssaultBase(x,y float64) bool {
+ return reversalActive && assaultBaseHP>0 && x>-18 && x<18 && y>114 && y<150
+}
+
+func damageAssaultBase(damage int) {
+ if !reversalActive || assaultBaseHP<=0 || gameState!=1 { return }
+ assaultBaseHP -= damage
+ if assaultBaseHP<0 { assaultBaseHP=0 }
+ mapNotice = "敌方基地耐久："+strconv.Itoa(assaultBaseHP)
+ if assaultBaseHP==0 { completeLevel }
+}
+
+func forestConcealed(x,y float64) bool {
+ for i:=0;i<len(forestX);i++ {
+  if !dynamicForestMarked(forestX[i],forestY[i]) && dynamicTileOverlaps(x,y,forestX[i],forestY[i],12) { return true }
+ }
+ return false
+}
+
+func forestEnemyDestroyed() {
+ if gameMode!=4 || gameState!=1 { return }
+ if score>=50 { finishMulti -1; hudStatus="围剿成功！共同消灭50辆敌军" }
+}
+
+// Two vertical approaches and a horizontal link to the centre, outside the base walls.
+func accessLane(x,y float64) bool {
+ return (x > -176 && x < -112) || (x > 112 && x < 176) || (y > -92 && y < -44) || (x > -32 && x < 32 && y > -92 && y < 36)
+}
+
+func reserveAccessLanes() {
+ for i:=0;i<14;i++ { if accessLane(brickX[i],brickY[i]) { brickDestroyed[i]=true } }
+ for i:=0;i<len(steelX);i++ { if accessLane(steelX[i],steelY[i]) { steelX[i]=1000 } }
+ for i:=0;i<len(waterX);i++ {
+  if accessLane(waterX[i],waterY[i]) {
+   if waterX[i]<0 { waterX[i]=-96 } else { waterX[i]=96 }
+   if accessLane(waterX[i],waterY[i]) { waterX[i]=1000 }
+  }
+ }
+}
+
+func closeBaseWalls() {
+ for i:=14;i<len(brickX);i++ { brickX[i],brickY[i]=1000,1000 }
+ for col:=0;col<3;col++ {
+  slot:=14+col
+  brickX[slot],brickY[slot]=float64(-24+col*24),-132
+ }
+ for row:=0;row<3;row++ {
+  brickX[17+row*2],brickY[17+row*2]=-24,float64(-144-row*12)
+  brickX[18+row*2],brickY[18+row*2]=24,float64(-144-row*12)
+ }
+}
+
+func enrichmentFree(x,y float64) bool {
+ if accessLane(x,y) || x>-48 && x<48 { return false }
+ // Keep the existing water/ice growth cells free.
+ if (x>-88 && x < -40 || x>40 && x<88) && (y>76 || y<0) { return false }
+ for i:=0;i<len(brickX);i++ {
+  if !brickDestroyed[i] && x>brickX[i]-24 && x<brickX[i]+24 && y>brickY[i]-18 && y<brickY[i]+18 { return false }
+ }
+ for i:=0;i<len(steelX);i++ { if dynamicTileOverlaps(x,y,steelX[i],steelY[i],24) { return false } }
+ for i:=0;i<len(waterX);i++ { if dynamicTileOverlaps(x,y,waterX[i],waterY[i],24) { return false } }
+ for i:=0;i<len(iceX);i++ { if dynamicTileOverlaps(x,y,iceX[i],iceY[i],24) { return false } }
+ for i:=0;i<len(forestX);i++ { if dynamicTileOverlaps(x,y,forestX[i],forestY[i],24) { return false } }
+ return true
+}
+
+func enrichMap() {
+ waterSlot,steelSlot,iceSlot,forestSlot:=12,7,15,18
+ turns,mixedTurns:=24,16
+ if level==1 { turns,mixedTurns=12,8 }
+ // Interleave terrain types so no single type consumes all available cells.
+ for turn:=0;turn<turns;turn++ {
+  kind:=3
+  if turn<mixedTurns { kind=(turn+2)%4 }
+  start:=int(rand(0,215))
+  placed:=false
+  for step:=0;step<216 && !placed;step++ {
+   cell:=(start+step)%216
+   x,y:=float64(-204+(cell%18)*24),float64(-148+(cell/18)*24)
+   if enrichmentFree(x,y) {
+    if kind==0 { waterX[waterSlot],waterY[waterSlot]=x,y; waterSlot++ }
+    if kind==1 { steelX[steelSlot],steelY[steelSlot]=x,y; steelSlot++ }
+    if kind==2 { iceX[iceSlot],iceY[iceSlot]=x,y; iceSlot++ }
+    if kind==3 { forestX[forestSlot],forestY[forestSlot]=x,y; forestSlot++ }
+    placed=true
+   }
+  }
+ }
+}
+
+func levelTwoLane(x float64) bool {
+ return (x > -176 && x < -112) || (x > 112 && x < 176)
+}
+
+func groupedLevelBricks() {
+ // Each 2x2 wall is four double-cell bricks, or eight map cells.
+ brickX[0],brickY[0]=-12,100
+ brickX[1],brickY[1]=12,100
+ brickX[2],brickY[2]=-12,88
+ brickX[3],brickY[3]=12,88
+ lowerY:= -20.0
+ if level==3 { lowerY=-112 }
+ for side:=0;side<2;side++ {
+  outer,inner:=-184.0,-160.0
+  if side==1 { outer,inner=184,160 }
+  slot:=4+side*4
+  brickX[slot],brickY[slot]=outer,lowerY
+  brickX[slot+1],brickY[slot+1]=inner,lowerY
+  brickX[slot+2],brickY[slot+2]=outer,lowerY-12
+  brickX[slot+3],brickY[slot+3]=inner,lowerY-12
+ }
+}
+
+func randomizeMap() {
+ if customMap { prepareCustomMap; return }
+ closeBaseWalls
+ if level == 1 { trainingMap; enrichMap; return }
+ for i:=0;i<len(waterX);i++ { waterX[i],waterY[i]=1000,1000 }
+ for i:=0;i<len(steelX);i++ { steelX[i],steelY[i]=1000,1000 }
+ for i := 0; i < 14; i++ { brickX[i], brickY[i] = 1000, 1000 }
+ for i := 0; i < len(forestX); i++ { forestX[i], forestY[i] = 1000, 1000 }
+ for i := 0; i < len(iceX); i++ { iceX[i], iceY[i] = 1000, 1000 }
+ if level == 2 {
+  waterX[0], waterY[0] = -96, 100
+  waterX[1], waterY[1] = -96, 68
+  waterX[2], waterY[2] = -96, 36
+  waterX[3], waterY[3] = -96, 4
+  waterX[4], waterY[4] = -96, -28
+  waterX[5], waterY[5] = -96, -60
+  waterX[6], waterY[6] = 96, 100
+  waterX[7], waterY[7] = 96, 68
+  waterX[8], waterY[8] = 96, 36
+  waterX[9], waterY[9] = 96, 4
+  waterX[10], waterY[10] = 96, -28
+  waterX[11], waterY[11] = 96, -60
+  steelX[0], steelY[0] = -192, 4
+  steelX[1], steelY[1] = -32, 4
+  steelX[2], steelY[2] = 0, 4
+  steelX[3], steelY[3] = 32, 4
+  steelX[4], steelY[4] = 192, 4
+  steelX[5], steelY[5] = -32, 68
+  steelX[6], steelY[6] = 32, 68
+ }
+ if level == 3 {
+  waterX[0], waterY[0] = -96, 100
+  waterX[1], waterY[1] = -96, 68
+  waterX[2], waterY[2] = -96, 36
+  waterX[3], waterY[3] = -96, 4
+  waterX[4], waterY[4] = -96, -28
+  waterX[5], waterY[5] = -96, -60
+  waterX[6], waterY[6] = 96, 100
+  waterX[7], waterY[7] = 96, 68
+  waterX[8], waterY[8] = 96, 36
+  waterX[9], waterY[9] = 96, 4
+  waterX[10], waterY[10] = 96, -28
+  waterX[11], waterY[11] = 96, -60
+  steelX[0], steelY[0] = -192, 68
+  steelX[1], steelY[1] = -192, 36
+  steelX[2], steelY[2] = -192, 4
+  steelX[3], steelY[3] = 192, 68
+  steelX[4], steelY[4] = 192, 36
+  // Remove the out-of-bounds lower-right steel plate from level three.
+  steelX[5], steelY[5] = 1000, 1000
+  steelX[6], steelY[6] = 0, -60
+  iceX[0], iceY[0] = -64, 68
+  iceX[1], iceY[1] = -32, 68
+  iceX[2], iceY[2] = 0, 68
+  iceX[3], iceY[3] = 32, 68
+  iceX[4], iceY[4] = 64, 68
+  iceX[5], iceY[5] = -64, 36
+  iceX[6], iceY[6] = -32, 36
+  iceX[7], iceY[7] = 0, 36
+  iceX[8], iceY[8] = 32, 36
+  iceX[9], iceY[9] = 64, 36
+  iceX[10], iceY[10] = -64, 4
+  iceX[11], iceY[11] = -32, 4
+  iceX[12], iceY[12] = 0, 4
+  iceX[13], iceY[13] = 32, 4
+  iceX[14], iceY[14] = 64, 4
+ }
+ groupedLevelBricks
+ count := 0
+ for row := 0; row < 6; row++ {
+  for col := 0; col < 13; col++ {
+   x, y := float64(-192 + col * 32), float64(100 - row * 32)
+   free := x < -32 || x > 32
+   if level==3 && (x == -64 || x == 64) && y == -28 { free=false }
+   if level == 2 && levelTwoLane(x) { free = false }
+   if level >= 2 && (x == -64 || x == 64) && y == 100 { free = false }
+   for i := 0; i < len(waterX); i++ {
+    if x > waterX[i]-32 && x < waterX[i]+32 && y > waterY[i]-32 && y < waterY[i]+32 { free = false }
+   }
+   for i := 0; i < len(steelX); i++ {
+    if x > steelX[i]-32 && x < steelX[i]+32 && y > steelY[i]-32 && y < steelY[i]+32 { free = false }
+   }
+   for i := 0; i < len(iceX); i++ {
+    if x > iceX[i]-32 && x < iceX[i]+32 && y > iceY[i]-32 && y < iceY[i]+32 { free = false }
+   }
+   for i:=0;i<14;i++ {
+    if !brickDestroyed[i] && x > brickX[i]-24 && x < brickX[i]+24 && y > brickY[i]-18 && y < brickY[i]+18 { free=false }
+   }
+   if free { mapPoolX[count], mapPoolY[count] = x, y; count++ }
+  }
+ }
+ for i := count - 1; i > 0; i-- {
+  j := int(rand(0, float64(i)))
+  mapPoolX[i], mapPoolX[j] = mapPoolX[j], mapPoolX[i]
+  mapPoolY[i], mapPoolY[j] = mapPoolY[j], mapPoolY[i]
+ }
+ for i := 0; i < 18 && i < count; i++ { forestX[i], forestY[i] = mapPoolX[i], mapPoolY[i] }
+ enrichMap
+}
+
+// Positive values identify a brick; -1 identifies an indestructible steel plate.
+func obstacleAt(x, y, halfW, halfH float64) int {
+ customHit := editorObstacle(x, y, halfW, halfH, false)
+ if customHit != 0 { return customHit }
+ if dynamicSolidAt(x, y, halfW, halfH, true) { return -1 }
+	for i := 0; i < len(brickX); i++ {
+		if !brickDestroyed[i] && x > brickX[i]-12-halfW && x < brickX[i]+12+halfW && y > brickY[i]-6-halfH && y < brickY[i]+6+halfH {
+			if i >= 14 && baseFortifiedUntil > powerTick { return -1 }
+   return i + 1
+		}
+	}
+	for i := 0; i < len(steelX); i++ {
+		if x > steelX[i]-12-halfW && x < steelX[i]+12+halfW && y > steelY[i]-12-halfH && y < steelY[i]+12+halfH {
+			return -1
+		}
+	}
+	return 0
+}
+
+func iceMultiplier(x, y float64) float64 {
+ for i := 0; i < len(dynamicKind); i++ {
+  if dynamicKind[i] == 2 && dynamicApplied[i] && dynamicExpiresAt[i] > powerTick && dynamicTileOverlaps(x, y, dynamicX[i], dynamicY[i], 16) { return 1.5 }
+ }
+ for i := 0; i < len(iceX); i++ {
+  if x >= iceX[i]-12 && x < iceX[i]+12 && y >= iceY[i]-12 && y < iceY[i]+12 {
+   return 1.5
+  }
+ }
+ return 1
+}
+
+func tankBlocked(x, y float64) bool {
+ if gameMode == 2 && (dynamicTileOverlaps(x,y,-192,-132,31) || dynamicTileOverlaps(x,y,192,132,31)) { return true }
+ if gameMode >= 2 {
+  if x < -216 || x > 216 || y < -156 || y > 156 { return true }
+  if obstacleAt(x,y,15,15) != 0 { return true }
+  for i := 0; i < len(waterX); i++ { if dynamicTileOverlaps(x,y,waterX[i],waterY[i],22) { return true } }
+  return false
+ }
+ if editorObstacle(x, y, 10, 10, true) != 0 { return true }
+ if dynamicSolidAt(x, y, 10, 10, false) { return true }
+ for i := 0; i < len(waterX); i++ {
+  if x > waterX[i]-22 && x < waterX[i]+22 && y > waterY[i]-22 && y < waterY[i]+22 {
+   return true
+  }
+ }
+	if x < -216 || x > 216 || y < -156 || y > 156 {
+		return true
+	}
+	if obstacleAt(x, y, 10, 10) != 0 {
+		return true
+	}
+	if reversalActive { return x > -22 && x < 22 && y > 110 && y < 154 }
+ return x > -23 && x < 23 && y < -127 && y > -173
+}
+
+// Include the projectile's half-size around the base art at the bottom center.
+func hitBase(x, y float64) bool {
+ if gameMode==4 { return false }
+	if reversalActive { return false }
+ return x > -27 && x < 27 && y < -123 && y > -177
+}
+
+func applyPowerup(kind int) {
+ if kind == 0 {
+  if bulletLevel < 3 { bulletLevel++ }
+  pickupName = "星星：炮弹升级"
+ }
+ if kind == 1 {
+  pickupName = "手雷：清除敌军"
+  broadcast "grenade"
+ }
+ if kind == 2 && !reversalActive {
+  baseFortifiedUntil = powerTick + 150
+  for i := 14; i < len(brickDestroyed); i++ { brickDestroyed[i] = false }
+  pickupName = "铁锹：基地钢墙 15 秒"
+ }
+ if kind == 3 {
+  invincibleUntil = powerTick + 80
+  pickupName = "头盔：无敌 8 秒"
+ }
+ if kind == 4 {
+  enemyFrozenUntil = powerTick + 60
+  pickupName = "定时器：冻结敌军 6 秒"
+ }
+ if kind == 5 {
+  lives = lives + 1
+  pickupName = "坦克：生命 +1"
+ }
+ if kind == 6 {
+  enemySlowedUntil = powerTick + 100
+  pickupName = "钟表：敌军减速 10 秒"
+ }
+ broadcast "powerupCollected"
+}
+
+// Kind: 1 water, 2 ice, 3 fire, 4/5 paired portals, 6 brick warning.
+func resetDynamicMap() {
+ for i := 0; i < len(dynamicKind); i++ {
+  dynamicKind[i] = 0
+  dynamicApplied[i] = false
+ }
+ for i := 0; i < len(lootUntil); i++ { lootUntil[i] = 0 }
+ dynamicWaterCount, dynamicIceCount = 0, 0
+ portalSlotA, portalSlotB = -1, -1
+ nextBrickAt = powerTick + 200
+ nextWaterAt = powerTick + 300
+ nextFireAt = powerTick + 180
+ nextIceAt = powerTick + 250
+ nextPortalAt = powerTick + 450
+ lastDynamicTick = -1
+ mapNotice = "动态地图已启动"
+}
+
+func dynamicTileOverlaps(x, y, tx, ty, radius float64) bool {
+ return x > tx-radius && x < tx+radius && y > ty-radius && y < ty+radius
+}
+
+// Avoid occupied cells; reserve the centre lane, spawn strips and base district.
+func dynamicPlacementSafe(x, y float64, kind, skip int) bool {
+ if level>=2 && (x == -64 || x == 64) && y == 100 && kind!=1 { return false }
+ if level==3 && kind==1 && (x == -64 || x == 64) && y == -28 { return false }
+ if !customMap && accessLane(x,y) && (kind==1 || kind==3 || kind==6) { return false }
+ if reversalActive && x > -64 && x < 64 { return false }
+ if level == 2 && levelTwoLane(x) && kind != 2 && kind != 4 && kind != 5 { return false }
+ minY := -60.0
+ if kind == 4 || kind == 5 { minY = -124 }
+ if x < -192 || x > 192 || y < minY || y > 100 { return false }
+ if x > -48 && x < 48 { return false }
+ if dynamicTileOverlaps(x, y, dynamicPlayerX, dynamicPlayerY, 48) { return false }
+ if dynamicEnemyAlive && dynamicTileOverlaps(x, y, dynamicEnemyX, dynamicEnemyY, 48) { return false }
+ if enemyAt(x, y, 48, -1) >= 0 { return false }
+ if gameMode > 0 && multiAt(x,y,48,-1) >= 0 { return false }
+ for i := 0; i < len(lootUntil); i++ {
+  if lootUntil[i] > powerTick && dynamicTileOverlaps(x, y, lootX[i], lootY[i], 32) { return false }
+ }
+ clearance := 32.0
+
+ for i := 0; i < len(brickX); i++ {
+  if !brickDestroyed[i] && x>brickX[i]-24 && x<brickX[i]+24 && y>brickY[i]-18 && y<brickY[i]+18 { return false }
+ }
+ for i := 0; i < len(steelX); i++ {
+  if dynamicTileOverlaps(x, y, steelX[i], steelY[i], clearance) { return false }
+ }
+ for i := 0; i < len(waterX); i++ {
+  if dynamicTileOverlaps(x, y, waterX[i], waterY[i], 32) { return false }
+ }
+ for i := 0; i < len(iceX); i++ {
+  if dynamicTileOverlaps(x, y, iceX[i], iceY[i], 32) { return false }
+ }
+ if kind != 3 {
+  for i := 0; i < len(forestX); i++ {
+   if dynamicTileOverlaps(x, y, forestX[i], forestY[i], 32) { return false }
+  }
+ }
+ for i := 0; i < len(dynamicKind); i++ {
+  if i != skip && dynamicKind[i] != 0 {
+   distance := 32.0
+
+   if kind == 1 && dynamicKind[i] == 1 { distance = 32 }
+   if dynamicTileOverlaps(x, y, dynamicX[i], dynamicY[i], distance) { return false }
+  }
+ }
+ return true
+}
+
+func planDynamicTile(x, y float64, kind, duration, brickID int) int {
+ if !dynamicPlacementSafe(x, y, kind, -1) { return -1 }
+ for i := 0; i < len(dynamicKind); i++ {
+  if dynamicKind[i] == 0 {
+   dynamicKind[i] = kind
+   dynamicX[i], dynamicY[i] = x, y
+   dynamicApplied[i] = false
+   dynamicActivateAt[i] = powerTick + 20
+   dynamicDeadline[i] = powerTick + 50
+   dynamicDuration[i] = duration
+   dynamicBrickID[i] = brickID
+   return i
+  }
+ }
+ return -1
+}
+
+func randomDynamicTile(kind, duration, brickID int) int {
+ start := int(rand(0, 77))
+ for attempt := 0; attempt < 78; attempt++ {
+  cell := (start + attempt) % 78
+  x := float64(-192 + (cell % 13) * 32)
+  y := float64(100 - (cell / 13) * 32)
+  slot := planDynamicTile(x, y, kind, duration, brickID)
+  if slot >= 0 { return slot }
+ }
+ return -1
+}
+
+func dynamicSolidAt(x, y, halfW, halfH float64, fireOnly bool) bool {
+ for i := 0; i < len(dynamicKind); i++ {
+  solid := dynamicKind[i] == 3
+  if !fireOnly && dynamicKind[i] == 1 { solid = true }
+  if solid && dynamicApplied[i] && dynamicExpiresAt[i] > powerTick {
+   if x > dynamicX[i]-12-halfW && x < dynamicX[i]+12+halfW && y > dynamicY[i]-12-halfH && y < dynamicY[i]+12+halfH { return true }
+  }
+ }
+ return false
+}
+
+func reserveDynamicLoot(x, y float64, expires int) int {
+ for i := 0; i < len(lootUntil); i++ {
+  if lootUntil[i] <= powerTick {
+   lootX[i], lootY[i], lootUntil[i] = x, y, expires
+   return i
+  }
+ }
+ return -1
+}
+
+func portalTarget(x, y float64, isPlayer bool) int {
+ a, b := portalSlotA, portalSlotB
+ if a < 0 || b < 0 { return -1 }
+ if dynamicKind[a] != 4 || dynamicKind[b] != 5 || !dynamicApplied[a] || !dynamicApplied[b] { return -1 }
+ if dynamicExpiresAt[a] <= powerTick || dynamicExpiresAt[b] <= powerTick { return -1 }
+ target := -1
+ if dynamicTileOverlaps(x, y, dynamicX[a], dynamicY[a], 16) { target = b }
+ if dynamicTileOverlaps(x, y, dynamicX[b], dynamicY[b], 16) { target = a }
+ if target < 0 { return -1 }
+ tx, ty := dynamicX[target], dynamicY[target]
+ if tankBlocked(tx, ty) { return -1 }
+ if isPlayer && dynamicEnemyAlive && dynamicTileOverlaps(tx, ty, dynamicEnemyX, dynamicEnemyY, 30) { return -1 }
+ if !isPlayer && dynamicTileOverlaps(tx, ty, dynamicPlayerX, dynamicPlayerY, 30) { return -1 }
+ if enemyAt(tx, ty, 30, -1) >= 0 { return -1 }
+ if gameMode > 0 && multiAt(tx,ty,20,-1) >= 0 { return -1 }
+ return target
+}
+
+func planTerrainExpansion(kind int) int {
+ total := len(waterX)
+ if kind == 2 { total = len(iceX) }
+ start := int(rand(0, total-1))
+ for step := 0; step < total; step++ {
+  id := (start + step) % total
+  x, y := 0.0, 0.0
+  if kind == 1 { x, y = waterX[id], waterY[id] }
+  if kind == 2 { x, y = iceX[id], iceY[id] }
+  if x < 500 {
+   for dir := 0; dir < 4; dir++ {
+    tx, ty := x, y
+    if dir == 0 { tx += 32 }
+    if dir == 1 { tx -= 32 }
+    if dir == 2 { ty += 32 }
+    if dir == 3 { ty -= 32 }
+    slot := planDynamicTile(tx, ty, kind, 36000, -1)
+    if slot >= 0 { return slot }
+   }
+  }
+ }
+ for id := 0; id < len(dynamicKind); id++ {
+  if dynamicKind[id] == kind && dynamicApplied[id] {
+   for dir := 0; dir < 4; dir++ {
+    tx, ty := dynamicX[id], dynamicY[id]
+    if dir == 0 { tx += 32 }
+    if dir == 1 { tx -= 32 }
+    if dir == 2 { ty += 32 }
+    if dir == 3 { ty -= 32 }
+    slot := planDynamicTile(tx, ty, kind, 36000, -1)
+    if slot >= 0 { return slot }
+   }
+  }
+ }
+ return randomDynamicTile(kind, 36000, -1)
+}
+
+func dynamicForestMarked(x, y float64) bool {
+ for i := 0; i < len(dynamicKind); i++ {
+  if dynamicKind[i] == 3 && dynamicX[i] == x && dynamicY[i] == y { return true }
+ }
+ return false
+}
+
+func tickDynamicMap() {
+ if gameMode >= 2 { return }
+ if customMap || gameMode >= 2 { return }
+ if gameState != 1 || lastDynamicTick == powerTick { return }
+ lastDynamicTick = powerTick
+ for i := 0; i < len(dynamicKind); i++ {
+  if dynamicKind[i] != 0 {
+   if !dynamicApplied[i] && powerTick >= dynamicActivateAt[i] {
+    if dynamicPlacementSafe(dynamicX[i], dynamicY[i], dynamicKind[i], i) {
+     if dynamicKind[i] == 6 {
+      id := dynamicBrickID[i]
+      if id >= 0 && id < 14 {
+       brickX[id], brickY[id] = dynamicX[i], dynamicY[i]
+       brickDestroyed[id] = false
+      }
+      dynamicKind[i] = 0
+     } else {
+      dynamicApplied[i] = true
+      if dynamicKind[i] == 1 { dynamicWaterCount++ }
+      if dynamicKind[i] == 2 { dynamicIceCount++ }
+      dynamicExpiresAt[i] = powerTick + dynamicDuration[i]
+     }
+    } else {
+     if powerTick >= dynamicDeadline[i] { dynamicKind[i] = 0 } else { dynamicActivateAt[i] = powerTick + 10 }
+    }
+   }
+   if dynamicApplied[i] && powerTick >= dynamicExpiresAt[i] { dynamicKind[i] = 0; dynamicApplied[i] = false }
+  }
+ }
+ if powerTick >= nextBrickAt {
+  nextBrickAt = powerTick + 200
+  for attempt:=0;attempt<14;attempt++ {
+   id:=int(rand(0,13))
+   if brickDestroyed[id] && brickX[id]<500 {
+    brickDestroyed[id]=false
+    mapNotice="砖墙修复：已恢复一块掩体"
+    break
+   }
+  }
+ }
+ if powerTick >= nextWaterAt {
+  nextWaterAt = powerTick + 300
+  if dynamicWaterCount < 12 {
+   slot := planTerrainExpansion(1)
+   if slot >= 0 { mapNotice = "水位上涨：蓝色区域即将淹没" }
+  }
+ }
+ if powerTick >= nextFireAt {
+  nextFireAt = powerTick + 180
+  start := int(rand(0, 17))
+  found := false
+  for attempt := 0; attempt < len(forestX) && !found; attempt++ {
+   id := (start + attempt) % len(forestX)
+   slot := planDynamicTile(forestX[id], forestY[id], 3, 80, -1)
+   if slot >= 0 { mapNotice = "森林起火：临时障碍持续 8 秒"; found = true }
+  }
+ }
+ if powerTick >= nextIceAt {
+  nextIceAt = powerTick + 250
+  if dynamicIceCount < 15 {
+   slot := planTerrainExpansion(2)
+   if slot >= 0 { mapNotice = "冰域扩大：注意惯性滑行" }
+  }
+ }
+ if powerTick >= nextPortalAt {
+  nextPortalAt = powerTick + 450
+  portalSlotA = planDynamicTile(-192, -108, 4, 200, -1)
+  if portalSlotA < 0 { portalSlotA = randomDynamicTile(4, 200, -1) }
+  if portalSlotA >= 0 {
+   portalSlotB = planDynamicTile(192, -108, 5, 200, -1)
+   if portalSlotB < 0 { portalSlotB = randomDynamicTile(5, 200, -1) }
+   if portalSlotB < 0 { dynamicKind[portalSlotA] = 0; portalSlotA = -1 } else { mapNotice = "传送门开启：蓝色与紫色互通" }
+  }
+ }
+}
 
 onStart => {
 	score = 0
 	lives = 3
+	level = 1
+	levelTarget = 8
+	enemySpeed = 4
 	gameState = 1
 	shotActive = 0
+	enemyShotActive = 0
+	brickDestroyed = [30]bool{}
+ randomizeMap
+ resetDynamicMap
+ hudStatus = "击毁8辆过关 / 10秒5辆反转；N单人 J合作 K竞技 L围剿"
 }
+
+onMsg "nextLevel", => {
+ serial := multiSerial
+	if level < 3 && gameState == 3 {
+		broadcast "levelClear"
+		wait 1
+  if serial != multiSerial { return }
+		level = level + 1
+		levelTarget = 15
+  if level == 3 { levelTarget = 20 }
+		score = 0
+		enemySpeed = 6
+		brickDestroyed = [30]bool{}
+		randomizeMap
+		broadcast "levelSetup"
+		wait 1
+  if serial != multiSerial { return }
+		gameState = 1
+		broadcast "levelStart"
+  hudStatus = "第"+strconv.Itoa(int(level))+"关：击毁"+strconv.Itoa(int(levelTarget))+"辆过关；10秒内5辆可反转"
+	}
+}
+
+// Power-up timers advance only while the game is playing.
+onStart => {
+ powerTick = 0
+ bulletLevel = 0
+ baseFortifiedUntil = 0
+ invincibleUntil = 0
+ enemyFrozenUntil = 0
+ enemySlowedUntil = 0
+ forever => {
+  wait 0.1
+  if gameState == 1 {
+   powerTick++
+   if !reversalActive && gameMode<=1 { reversalKillCount=recentReversalKills() }
+   if reversalActive { hudStatus="第"+strconv.Itoa(int(level))+"关反转：摧毁上方敌方基地"; mapNotice="敌方基地耐久："+strconv.Itoa(assaultBaseHP) }
+  }
+ }
+}
+
+
+
+onMsg "levelSetup", => {
+ reversalActive=false
+ assaultBaseHP=0
+ reversalKillCount=0
+ reversalKills=[5]int{}
+ if gameMode == 1 { resetCoopPlayers }
+ enemyAlive = [4]bool{}
+ enemyBulletActive = [4]bool{}
+ enemyLimit = enemyCap()
+ resetDynamicMap
+ baseFortifiedUntil = 0
+ invincibleUntil = 0
+ enemyFrozenUntil = 0
+ enemySlowedUntil = 0
+}
+
+onKey KeyE, => {
+ if gameMode == 0 && !editorMode && gameState != 3 {
+  customMap = true
+  editorMode = true
+  gameState = 4
+  shotActive = 0
+  enemyShotActive = 0
+  broadcast "levelSetup"
+  prepareCustomMap
+  hudStatus = "拖拽砖/钢/水/林；5擦除；回车试玩"
+  mapNotice = "E编辑 · 1砖 2钢 3水 4林 · R清空"
+ }
+}
+
+onKey KeyEnter, => {
+ if editorMode {
+  editorMode = false
+  gameState = 4
+  score = 0
+  lives = 3
+  bulletLevel = 0
+  brickDestroyed = [30]bool{}
+  prepareCustomMap
+  broadcast "levelSetup"
+  wait 0.1
+  gameState = 1
+  broadcast "levelStart"
+  hudStatus = "自建地图试玩；E返回编辑"
+  mapNotice = "自建地图不自动改变地形"
+ }
+}
+
+onKey Key1, => { if editorMode { editorTool = 1 } }
+onKey Key2, => { if editorMode { editorTool = 2 } }
+onKey Key3, => { if editorMode { editorTool = 3 } }
+onKey Key4, => { if editorMode { editorTool = 4 } }
+onKey Key5, => { if editorMode { editorTool = 0; hudStatus = "擦除：点击地块；1至4恢复放置" } }
+onKey KeyR, => { if editorMode { editorTiles = [78]int{}; editorBroken = [78]bool{} } }
+
+
+onStart => {
+ hideVar "multiHUD"
+ forever => { wait 0.05; tickMulti }
+}
+
+onKey KeyN, => { beginMulti 0 }
+onKey KeyJ, => { beginMulti 1 }
+onKey KeyK, => { beginMulti 2 }
+onKey KeyL, => { beginMulti 4 }
+onKey KeyZ, => { forestPlayers=1; hudStatus="已选择单人围剿，按L开始" }
+onKey KeyX, => { forestPlayers=2; hudStatus="已选择双人围剿，按L开始" }

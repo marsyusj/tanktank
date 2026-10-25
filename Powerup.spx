@@ -1,0 +1,42 @@
+var (
+ pickupSerial int
+ isPickupClone bool
+ kind int
+ lootSlot int
+ expiresAt int
+)
+
+onStart => { hide }
+
+onMsg "chestDrop", => {
+ if !isPickupClone && gameState == 1 {
+  pickupSerial = multiSerial
+  kind = int(rand(0, 6))
+  expiresAt = powerTick + 200
+  lootSlot = reserveDynamicLoot(chestX, chestY, expiresAt)
+  if lootSlot < 0 { return }
+  setXYpos chestX, chestY
+  setCostume kind
+  clone
+ }
+}
+
+onCloned => {
+ isPickupClone = true
+ setSize 1
+ setLayer Front
+ show
+ forever => {
+  if pickupSerial != multiSerial || gameState != 1 || powerTick >= expiresAt { lootUntil[lootSlot] = 0; destroy; return }
+  target := -1
+  if gameMode == 1 { target = multiAt(xpos,ypos,26,-1) }
+  if (gameMode == 0 && touching(PlayerTank)) || target >= 0 {
+   lootUntil[lootSlot] = 0
+   hide
+   if gameMode == 1 { applyMultiPowerup target, kind } else { applyPowerup kind }
+   destroy
+   return
+  }
+  wait 0.05
+ }
+}

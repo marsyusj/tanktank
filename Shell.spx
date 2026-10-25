@@ -1,29 +1,71 @@
+var (
+ shellDamage int
+ shellStep float64
+)
+
 onStart => {
-	setSize 2
+	setSize 0.65
 	hide
 	forever => {
-		if shotActive == 1 {
-			step 18
-			if touching(EnemyTank) {
+		if gameMode == 0 && shotActive == 1 && gameState == 1 {
+			for sub := 0; sub < 6 && shotActive == 1 && gameState == 1; sub++ {
+   step shellStep / 6
+			hit := obstacleAt(xpos, ypos, 5, 6)
+			if hit != 0 {
+				if hit > 0 { destroyMapBrick hit }
 				shotActive = 0
 				hide
-				broadcast "enemyHit"
+			} else if hitAssaultBase(xpos,ypos) {
+    shotActive=0
+    hide
+    damageAssaultBase shellDamage
+   } else if hitBase(xpos, ypos) {
+				shotActive = 0
+				hide
+				gameState = 0
+				broadcast "lose"
 			}
-			if touching(Edge) {
+			target := enemyAt(xpos, ypos, 24, -1)
+			if shotActive == 1 && target >= 0 {
+				shotActive = 0
+				hide
+				enemyHitTarget = target
+			hitDamage = shellDamage
+    broadcast "enemyHit"
+			}
+			if shotActive == 1 && (touching(Edge) || ypos > 180 || ypos < -180) {
 				shotActive = 0
 				hide
 			}
+   }
+		} else if shotActive == 1 {
+			shotActive = 0
+			hide
 		}
 		wait 0.03
 	}
 }
 
 onMsg "fire", => {
-	setXpos shotX
-	setYpos shotY
-	if shotDir == 0 { setHeading Up }
-	if shotDir == 1 { setHeading Right }
-	if shotDir == 2 { setHeading Down }
-	if shotDir == 3 { setHeading Left }
-	show
+	if gameState == 1 {
+		shellDamage = shotDamage
+  shellStep = shotStep
+  setXpos shotX
+		setYpos shotY
+		if shotDir == 0 { setHeading Up }
+		if shotDir == 1 { setHeading Right }
+		if shotDir == 2 { setHeading Down }
+		if shotDir == 3 { setHeading Left }
+		show
+	}
+}
+
+onMsg "levelClear", => {
+	shotActive = 0
+	hide
+}
+
+onMsg "win", => {
+	shotActive = 0
+	hide
 }

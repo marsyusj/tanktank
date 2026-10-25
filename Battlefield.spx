@@ -1,6 +1,16 @@
 onStart => {
-	setXpos 0
-	setYpos 0
-	setSize 1
-	setLayer Back
+ setCostume 0
+ setXYpos 0, 0
+ setSize 1
+ setLayer Back
+ forever => {
+  if reversalActive && gameMode<=1 { setCostume int(level+2) } else if gameMode>=2 { setCostume 2 } else { setCostume 1 }
+  wait 0.1
+ }
 }
+
+onMsg "levelSetup", => {
+ if gameMode >= 2 { setCostume 2 } else { setCostume 1 }
+}
+
+onMsg "reversal", => { setCostume int(level+2) }

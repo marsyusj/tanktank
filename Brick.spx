@@ -1,0 +1,27 @@
+var tileID int
+
+onStart => {
+	hide
+	for i := 0; i < len(brickX); i++ {
+		tileID = i
+		setXpos brickX[i]
+		setYpos brickY[i]
+		clone
+	}
+}
+
+onCloned => {
+ setSize 1
+	show
+	forever => {
+  if tileID >= 14 && baseFortifiedUntil > powerTick { setCostume 1 } else { setCostume 0 }
+		if brickDestroyed[tileID] || gameState == 3 || brickX[tileID] > 500 {
+			hide
+		} else {
+			setXpos brickX[tileID]
+			setYpos brickY[tileID]
+			show
+		}
+		wait 0.03
+	}
+}

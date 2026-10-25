@@ -1,0 +1,76 @@
+var (
+ bulletID int
+ bulletVisible bool
+)
+
+onStart => {
+ hide
+ for i := 0; i < 4; i++ {
+  bulletID = i
+  clone
+ }
+}
+
+onCloned => {
+ setSize 0.65
+ hide
+ forever => {
+  if gameState == 1 && enemyBulletActive[bulletID] {
+   if !bulletVisible {
+    setXYpos enemyBulletX[bulletID], enemyBulletY[bulletID]
+    dir := enemyBulletDir[bulletID]
+    if dir == 0 { setHeading Up }
+    if dir == 1 { setHeading Right }
+    if dir == 2 { setHeading Down }
+    if dir == 3 { setHeading Left }
+    bulletVisible = true
+    show
+   }
+   for sub := 0; sub < 4 && enemyBulletActive[bulletID] && gameState == 1; sub++ {
+    step 3
+    hit := obstacleAt(xpos, ypos, 5, 6)
+    if hit != 0 {
+     if hit > 0 { destroyMapBrick hit }
+     enemyBulletActive[bulletID] = false
+    } else if hitBase(xpos, ypos) {
+     enemyBulletActive[bulletID] = false
+     if gameMode == 1 { damageSharedBase } else { gameState = 0; broadcast "lose" }
+    }
+    coopTarget := -1
+    if gameMode == 1 || gameMode==4 { coopTarget = multiAt(xpos,ypos,24,-1) }
+    if enemyBulletActive[bulletID] && coopTarget >= 0 {
+     enemyBulletActive[bulletID] = false
+     damageMulti coopTarget, -1, 1
+    }
+    if gameMode == 0 && enemyBulletActive[bulletID] && touching(PlayerTank) {
+     enemyBulletActive[bulletID] = false
+     explosionX, explosionY = xpos, ypos
+     broadcast "explode"
+     if invincibleUntil <= powerTick {
+      lives--
+      if lives <= 0 { gameState = 0 }
+      broadcast "damage"
+     }
+    }
+    if touching(Edge) || ypos > 180 || ypos < -180 { enemyBulletActive[bulletID] = false }
+   }
+  } else { enemyBulletActive[bulletID] = false }
+  if !enemyBulletActive[bulletID] {
+   bulletVisible = false
+   hide
+  }
+  wait 0.03
+ }
+}
+
+onMsg "grenade", => {
+ enemyBulletActive[bulletID] = false
+ bulletVisible = false
+ hide
+}
+
+onMsg "levelSetup", => {
+ enemyBulletActive[bulletID] = false
+ bulletVisible = false
+ hide
+}

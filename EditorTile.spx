@@ -1,0 +1,82 @@
+var (
+ editorID int
+ dragging bool
+ wasPressed bool
+ dragKind int
+ dragSource int = -1
+)
+
+onStart => {
+ hide
+ for i := 0; i < 83; i++ {
+  editorID = i - 4
+  clone
+ }
+ forever => {
+  down := mousePressed
+  if editorMode {
+   if down && !wasPressed {
+    dragSource = -1
+    dragKind = editorTool
+    if mouseY > 120 && mouseY < 160 {
+     for k := 0; k < 4; k++ {
+      if mouseX > -176+float64(k)*96 && mouseX < -144+float64(k)*96 {
+       dragKind = k+1
+       editorTool = dragKind
+      }
+     }
+     dragging = dragKind > 0
+    } else {
+     id := editorCell(mouseX, mouseY)
+     if id >= 0 {
+      if editorTool == 0 { editorPlace id, 0 } else {
+       if editorTiles[id] > 0 { dragKind = editorTiles[id]; dragSource = id }
+       dragging = true
+      }
+     }
+    }
+   }
+   if !down && wasPressed && dragging {
+    dest := editorCell(mouseX, mouseY)
+    if dest >= 0 {
+     if dragSource >= 0 { editorPlace dragSource, 0 }
+     editorPlace dest, dragKind
+    }
+    dragging = false
+   }
+  } else { dragging = false }
+  editorDragKind = 0
+  if dragging { editorDragKind = dragKind }
+  editorDragX, editorDragY = mouseX, mouseY
+  wasPressed = down
+  wait 0.02
+ }
+}
+
+onCloned => {
+ forever => {
+  kind := 0
+  if customMap {
+   if editorID < 0 && editorMode {
+    kind = editorID+5
+    setXYpos -160+float64(editorID+4)*96, 140
+   }
+   if editorID >= 0 && editorID < 78 {
+    kind = editorTiles[editorID]
+    if editorBroken[editorID] && !editorMode { kind = 0 }
+    setXYpos editorX(editorID), editorY(editorID)
+   }
+  }
+  if editorID == 78 && editorMode {
+   kind = editorDragKind
+   setXYpos editorDragX, editorDragY
+  }
+  if kind > 0 {
+   setCostume kind-1
+   if kind == 1 || kind == 3 { setSize 1 } else { setSize 0.5 }
+   if kind == 4 { setLayer Front }
+   show
+  } else { hide }
+  wait 0.03
+ }
+}

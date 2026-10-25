@@ -1,0 +1,29 @@
+var tileID int
+onStart => {
+ hide
+ for i := 0; i < len(dynamicKind); i++ {
+  tileID = i
+  clone
+ }
+ forever => {
+  tickDynamicMap
+  wait 0.1
+ }
+}
+onCloned => {
+ setSize 0.75
+ forever => {
+  if dynamicKind[tileID] == 0 || gameState != 1 { hide } else {
+   setXYpos dynamicX[tileID], dynamicY[tileID]
+   if !dynamicApplied[tileID] { setCostume 3 } else {
+    if dynamicKind[tileID] == 1 { setCostume 0 }
+    if dynamicKind[tileID] == 2 { setCostume 1 }
+    if dynamicKind[tileID] == 3 { setCostume 2 }
+    if dynamicKind[tileID] == 4 { setCostume 4 }
+    if dynamicKind[tileID] == 5 { setCostume 5 }
+   }
+   show
+  }
+  wait 0.1
+ }
+}

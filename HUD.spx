@@ -1,0 +1,5 @@
+onStart => {
+ setCostume 0
+ setXYpos 0, 0
+ setSize 1
+}

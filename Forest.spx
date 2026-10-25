@@ -1,0 +1,18 @@
+var forestID int
+onStart => {
+ hide
+ for i := 0; i < len(forestX); i++ {
+  forestID = i
+  setXYpos forestX[i], forestY[i]
+  clone
+ }
+}
+onCloned => {
+ setSize 0.5
+ setLayer Front
+ forever => {
+  setXYpos forestX[forestID], forestY[forestID]
+  if xpos > 500 || dynamicForestMarked(xpos, ypos) { hide } else { show }
+  wait 0.03
+ }
+}

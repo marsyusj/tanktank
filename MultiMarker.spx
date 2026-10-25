@@ -1,0 +1,18 @@
+var actorID int
+onStart => {
+ hide
+ for i := 0; i < 16; i++ { actorID = i; clone }
+}
+onCloned => {
+ setSize 0.75
+ setLayer Front
+ forever => {
+  if !(gameMode==4 && forestConcealed(multiX[actorID],multiY[actorID])) && gameMode > 0 && multiUsed[actorID] && ((multiHP[actorID] > 0 && (multiStrength[actorID] >= 2 || multiInvUntil[actorID] > multiTick)) || multiDownUntil[actorID] > multiTick) {
+   setLayer Front
+   setXYpos multiX[actorID],multiY[actorID]
+   if multiHP[actorID] <= 0 { setCostume 2 } else { setCostume multiTeam(actorID) }
+   show
+  } else { hide }
+  wait 0.03
+ }
+}

@@ -1,0 +1,21 @@
+onStart => {
+	hide
+}
+
+onMsg "explode", => {
+	setXpos explosionX
+	setYpos explosionY
+	setCostume 0
+	clone
+}
+
+onCloned => {
+	setLayer Front
+	show
+	wait 0.07
+	setCostume 1
+	wait 0.09
+	setCostume 2
+	wait 0.12
+	destroy
+}

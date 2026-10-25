@@ -1,43 +1,283 @@
-onStart => {
-	setSize 1
-	setXpos -190
-	setYpos 145
-	setHeading Down
-	forever => {
-		if gameState == 1 {
-			if ypos > -130 {
-				setHeading Down
-				step 0.6
+var (
+ patrolPoint int
+ enemyArmedAt int
+ enemyID int
+
+ enemyPresent bool
+ teleportReadyAt int
+ enemyRespawnAt int
+
+	enemyHP int
+ enemyKind int
+ spawnSide int
+ fireInterval int
+ fireTicks int
+	moveTicks int
+	backTicks int
+	moveDir int
+)
+
+func faceDirection() {
+	if moveDir == 0 { setHeading Up }
+	if moveDir == 1 { setHeading Right }
+	if moveDir == 2 { setHeading Down }
+	if moveDir == 3 { setHeading Left }
+}
+
+func roamForest() {
+ // Follow a rectangular patrol circuit; only chase visible nearby players.
+ tx,ty:=-160.0,-96.0
+ point:=(patrolPoint+enemyID)%4
+ if point==1 { tx,ty=160,-96 }
+ if point==2 { tx,ty=160,96 }
+ if point==3 { tx,ty=-160,96 }
+ if dynamicTileOverlaps(xpos,ypos,tx,ty,20) { patrolPoint++ }
+ nearest:=180.0
+ for player:=0;player<2;player++ {
+  id:=player*8
+  if multiUsed[id] && multiHP[id]>0 && !forestConcealed(multiX[id],multiY[id]) {
+   dx,dy:=multiX[id]-xpos,multiY[id]-ypos
+   if dx<0 { dx=-dx }; if dy<0 { dy=-dy }
+   if dx+dy<nearest { nearest=dx+dy; tx,ty=multiX[id],multiY[id] }
+  }
+ }
+ dx,dy:=tx-xpos,ty-ypos
+ ax,ay:=dx,dy
+ if ax<0 { ax=-ax }; if ay<0 { ay=-ay }
+ preferred:=0
+ if ax>ay { if dx>0 { preferred=1 } else { preferred=3 } } else { if dy<0 { preferred=2 } }
+ speed:=3.0+float64(enemyKind)*0.5
+ if enemySlowedUntil>powerTick { speed*=0.5 }
+ oldX,oldY:=xpos,ypos
+ for attempt:=0;attempt<4;attempt++ {
+  moveDir=(preferred+attempt)%4
+  faceDirection
+  step speed
+  if !tankBlocked(xpos,ypos) && multiAt(xpos,ypos,20,-1)<0 && enemyAt(xpos,ypos,20,enemyID)<0 { return }
+  setXYpos oldX,oldY
+ }
+}
+
+func roam() {
+ if gameMode==4 { roamForest; return }
+	if moveTicks <= 0 {
+		moveDir = int(rand(0, 3))
+  if reversalActive && ypos < 68 { moveDir=0 }
+  if reversalActive && ypos > 100 { moveDir=2 }
+		moveTicks = int(rand(8, 18))
+		backTicks = int(rand(0, 4))
+	}
+	faceDirection
+	oldX, oldY := xpos, ypos
+ speed := enemySpeed * iceMultiplier(xpos, ypos)
+ if enemyKind == 1 { speed = 7 * iceMultiplier(xpos, ypos) }
+ if enemyKind == 2 { speed = 4 * iceMultiplier(xpos, ypos) }
+ if enemyKind == 3 { speed = 8 * iceMultiplier(xpos, ypos) }
+ if reversalActive && level == 3 {
+  if enemyKind == 2 { speed = 8 * iceMultiplier(xpos, ypos) }
+  if enemyKind == 3 { speed = 9 * iceMultiplier(xpos, ypos) }
+ }
+	if enemySlowedUntil > powerTick { speed = speed * 0.5 }
+	if backTicks > 0 {
+		step -speed
+		backTicks--
+	} else {
+		step speed
+	}
+	moveTicks--
+	if tankBlocked(xpos, ypos) || (((gameMode == 0 && touching(PlayerTank)) || (gameMode == 1 && multiAt(xpos,ypos,20,-1) >= 0)) || enemyAt(xpos, ypos, 30, enemyID) >= 0) {
+		setXYpos oldX, oldY
+		backTicks = 0
+		found := false
+		for tries := 0; tries < 4 && !found; tries++ {
+			moveDir = (moveDir + 1) % 4
+			faceDirection
+			step speed
+			if tankBlocked(xpos, ypos) || (((gameMode == 0 && touching(PlayerTank)) || (gameMode == 1 && multiAt(xpos,ypos,20,-1) >= 0)) || enemyAt(xpos, ypos, 30, enemyID) >= 0) {
+				setXYpos oldX, oldY
 			} else {
-				setHeading Right
-				step 0.6
-			}
-			if ypos < -100 {
-				if touching(PlayerTank) {
-					lives = lives - 1
-					broadcast "damage"
-					setXpos -190
-					setYpos 145
-				}
-			}
-			if xpos > -20 {
-				gameState = 0
-				broadcast "lose"
+				found = true
 			}
 		}
-		wait 0.1
+		moveTicks = int(rand(5, 12))
 	}
 }
 
+func spawnLaneX(lane int) float64 { return -192 + float64(lane%4)*128 }
+
+func spawnIsSafe(x,y float64) bool {
+ if (gameMode!=4 && y < 100) || tankBlocked(x,y) || enemyAt(x,y,36,enemyID) >= 0 { return false }
+ if gameMode == 0 && dynamicTileOverlaps(x,y,dynamicPlayerX,dynamicPlayerY,96) { return false }
+ if (gameMode == 1 || gameMode==4) && multiAt(x,y,96,-1) >= 0 { return false }
+ return true
+}
+
+func canEnemyAct() bool {
+ return enemyPresent && powerTick >= enemyArmedAt && enemyFrozenUntil <= powerTick
+}
+
+func respawn() {
+ enemyPresent = true
+ enemyAlive[enemyID] = true
+ enemyRespawnAt = 0
+	setSize 0.4166666666666667
+ enemyKind, enemyHP, fireInterval = 0, 1, 12
+ if level == 2 { enemyKind, fireInterval = 1, 10 }
+ if level == 3 {
+  enemyKind = int(rand(2, 3))
+  enemyHP = 3
+  if enemyKind == 3 { enemyHP, fireInterval = 2, 7 }
+ }
+ if reversalActive {
+  if level == 2 { fireInterval = 9 }
+  if level == 3 {
+   if enemyKind == 2 { fireInterval = 7 } else { fireInterval = 6 }
+  }
+ }
+ if gameMode==4 {
+  enemyKind=int(rand(0,3))
+  enemyHP=1
+  if enemyKind>=2 { enemyHP=2 }
+  fireInterval=16-enemyKind*2
+ }
+ setCostume enemyKind
+ moveDir = 2
+ foundSpawn := false
+ for attempt := 0; attempt < 16 && !foundSpawn; attempt++ {
+  x := spawnLaneX(enemyID+attempt)
+  y:=145.0
+  if gameMode==4 {
+   side:=(enemyID+attempt+forestSpawned)%4
+   offset:=float64(-192+int(rand(0,12))*32)
+   x=offset
+   if side==1 { y=-145 }
+   if side==2 || side==3 { x=-208; y=float64(-128+int(rand(0,8))*32); if side==3 { x=208 } }
+  }
+  if spawnIsSafe(x,y) { setXYpos x,y; foundSpawn = true }
+ }
+ if !foundSpawn {
+  enemyPresent = false
+  enemyAlive[enemyID] = false
+  enemyRespawnAt = powerTick + 10
+  hide
+  return
+ }
+ if gameMode==4 {
+  forestSpawned++
+  delay:=30-(powerTick-forestStartTick)/100
+  if delay<10 { delay=10 }
+  forestNextSpawn=powerTick+delay
+ }
+ enemyArmedAt = powerTick + 30
+ enemyHealth[enemyID] = enemyHP
+ enemyPosX[enemyID], enemyPosY[enemyID] = xpos, ypos
+ show
+	moveTicks = 10
+	backTicks = 0
+	faceDirection
+	fireTicks = 0
+}
+
+func destroyEnemy(allowDrop bool) {
+ if gameState != 1 || !enemyPresent { return }
+ enemyPresent = false
+ enemyAlive[enemyID] = false
+ explosionX, explosionY = xpos, ypos
+ broadcast "explode"
+ hide
+ score = score + 1
+ if gameMode==4 {
+  forestEnemyDestroyed
+  enemyRespawnAt=powerTick+10
+  return
+ }
+ if clearDefenseByKills() { return }
+ if allowDrop && int(rand(1, 100)) <= dropChance {
+  chestX, chestY = xpos, ypos
+  broadcast "chestDrop"
+ }
+ if allowDrop { recordReversalKill }
+ enemyRespawnAt = powerTick + 8
+}
+
+onStart => {
+ hide
+ for i := 0; i < 4; i++ {
+  enemyID = i
+  clone
+ }
+}
+
+onCloned => {
+ hide
+ spawnSide = enemyID
+ forever => {
+  enemyLimit = enemyCap()
+  if gameState != 1 {
+   enemyPresent = false
+   enemyAlive[enemyID] = false
+   hide
+   enemyRespawnAt = powerTick + 10 + enemyID*5
+  } else {
+   if !enemyPresent && powerTick >= enemyRespawnAt && canSpawnEnemy(enemyID) { respawn }
+   if enemyPresent && (gameMode == 1 || gameMode==4) {
+    enemyHP = enemyHealth[enemyID]
+    if enemyHP <= 0 { destroyEnemy true }
+   }
+   if canEnemyAct() {
+    roam
+    enemyPosX[enemyID], enemyPosY[enemyID] = xpos, ypos
+    if powerTick >= teleportReadyAt {
+     target := portalTarget(xpos, ypos, false)
+     if target >= 0 {
+      setXYpos dynamicX[target], dynamicY[target]
+      enemyPosX[enemyID], enemyPosY[enemyID] = xpos, ypos
+      teleportReadyAt = powerTick + 15
+     }
+    }
+    fireTicks++
+    if fireTicks >= fireInterval && !enemyBulletActive[enemyID] {
+     enemyBulletX[enemyID], enemyBulletY[enemyID] = xpos, ypos
+     enemyBulletDir[enemyID] = moveDir
+     if moveDir == 0 { enemyBulletY[enemyID] += 24 }
+     if moveDir == 1 { enemyBulletX[enemyID] += 24 }
+     if moveDir == 2 { enemyBulletY[enemyID] -= 24 }
+     if moveDir == 3 { enemyBulletX[enemyID] -= 24 }
+     enemyBulletActive[enemyID] = true
+     fireTicks = 0
+    }
+   }
+  }
+  wait 0.1
+ }
+}
+
 onMsg "enemyHit", => {
-	score = score + 1
-	if score >= 5 {
-		gameState = 2
-		hide
-		broadcast "win"
-	} else {
-		setXpos -190
-		setYpos 145
-		show
-	}
+ if gameState == 1 && enemyPresent && enemyID == enemyHitTarget {
+  enemyHP -= hitDamage
+  enemyHealth[enemyID] = enemyHP
+  if enemyHP <= 0 { destroyEnemy true }
+ }
+}
+
+onMsg "grenade", => {
+ enemyBulletActive = [4]bool{}
+ if gameState == 1 && enemyPresent { destroyEnemy false }
+}
+
+onMsg "levelSetup", => {
+ enemyPresent = false
+ enemyAlive[enemyID] = false
+ enemyRespawnAt = powerTick + 10 + enemyID*5
+ moveTicks = 0
+ fireTicks = 0
+ teleportReadyAt = 0
+ hide
+}
+
+onMsg "reversal", => {
+ enemyPresent=false
+ enemyAlive[enemyID]=false
+ enemyRespawnAt=powerTick+20+enemyID*5
+ hide
 }
